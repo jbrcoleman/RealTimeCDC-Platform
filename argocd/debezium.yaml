@@ -1,0 +1,58 @@
+---
+# Debezium Connector Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: debezium-connectors
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"  # Deploy after Schema Registry
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: cdc-platform
+  
+  source:
+    repoURL: https://github.com/YOUR_ORG/RealTimeCDC-Platform  # UPDATE THIS
+    targetRevision: main
+    path: k8s/debezium
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kafka
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  # Custom health assessment for Kafka Connectors
+  health:
+    - group: kafka.strimzi.io
+      kind: KafkaConnector
+      check: |
+        hs = {}
+        if obj.status ~= nil then
+          if obj.status.conditions ~= nil then
+            for i, condition in ipairs(obj.status.conditions) do
+              if condition.type == "Ready" and condition.status == "True" then
+                hs.status = "Healthy"
+                hs.message = "Connector is running"
+                return hs
+              elseif condition.type == "Ready" and condition.status == "False" then
+                hs.status = "Degraded"
+                hs.message = condition.message
+                return hs
+              end
+            end
+          end
+        end
+        hs.status = "Progressing"
+        hs.message = "Waiting for connector to be ready"
+        return hs

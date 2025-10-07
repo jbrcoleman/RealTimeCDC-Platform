@@ -1,0 +1,159 @@
+---
+# CDC Consumer Applications
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cdc-consumers
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"  # Deploy after Debezium
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: cdc-platform
+  
+  source:
+    repoURL: https://github.com/jbrcoleman/RealTimeCDC-Platform
+    targetRevision: main
+    path: k8s/consumers
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cdc-consumers
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  # Ignore replicas if HPA is managing them
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+---
+# Inventory Service Application (Individual consumer option)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: inventory-service
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: cdc-platform
+  
+  source:
+    repoURL: https://github.com/jbrcoleman/RealTimeCDC-Platform
+    targetRevision: main
+    path: k8s/consumers/inventory-service
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cdc-consumers
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+---
+# Analytics Service Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: analytics-service
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: cdc-platform
+  
+  source:
+    repoURL: https://github.com/jbrcoleman/RealTimeCDC-Platform
+    targetRevision: main
+    path: k8s/consumers/analytics-service
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cdc-consumers
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+---
+# Search Indexer Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: search-indexer
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: cdc-platform
+  
+  source:
+    repoURL: https://github.com/jbrcoleman/RealTimeCDC-Platform
+    targetRevision: main
+    path: k8s/consumers/search-indexer
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cdc-consumers
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

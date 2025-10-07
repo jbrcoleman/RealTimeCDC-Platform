@@ -1,0 +1,66 @@
+---
+# ArgoCD Project for CDC Platform
+# Provides RBAC and resource restrictions
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cdc-platform
+  namespace: argocd
+spec:
+  description: Real-Time CDC Platform Project
+  
+  # Source repositories
+  sourceRepos:
+    - 'https://github.com/YOUR_ORG/RealTimeCDC-Platform'  # UPDATE THIS
+    - 'https://strimzi.io/charts/'  # Strimzi Kafka Helm charts
+    - 'https://apache.github.io/flink-kubernetes-operator'  # Flink Operator
+  
+  # Destination clusters and namespaces
+  destinations:
+    - namespace: 'kafka'
+      server: 'https://kubernetes.default.svc'
+    - namespace: 'cdc-consumers'
+      server: 'https://kubernetes.default.svc'
+    - namespace: 'flink'
+      server: 'https://kubernetes.default.svc'
+    - namespace: 'monitoring'
+      server: 'https://kubernetes.default.svc'
+    - namespace: 'external-secrets'
+      server: 'https://kubernetes.default.svc'
+  
+  # Cluster resource whitelist
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: 'rbac.authorization.k8s.io'
+      kind: ClusterRole
+    - group: 'rbac.authorization.k8s.io'
+      kind: ClusterRoleBinding
+    - group: 'apiextensions.k8s.io'
+      kind: CustomResourceDefinition
+    - group: 'admissionregistration.k8s.io'
+      kind: ValidatingWebhookConfiguration
+    - group: 'admissionregistration.k8s.io'
+      kind: MutatingWebhookConfiguration
+  
+  # Namespace resource whitelist (empty = allow all)
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  
+  # Roles for team access
+  roles:
+    - name: developer
+      description: Developers can view and sync applications
+      policies:
+        - p, proj:cdc-platform:developer, applications, get, cdc-platform/*, allow
+        - p, proj:cdc-platform:developer, applications, sync, cdc-platform/*, allow
+      groups:
+        - cdc-developers
+    
+    - name: admin
+      description: Admins have full access
+      policies:
+        - p, proj:cdc-platform:admin, applications, *, cdc-platform/*, allow
+      groups:
+        - cdc-admins
