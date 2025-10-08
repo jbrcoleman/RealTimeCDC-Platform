@@ -13,7 +13,7 @@ spec:
   project: cdc-platform
   
   source:
-    repoURL: https://github.com/YOUR_ORG/RealTimeCDC-Platform  # UPDATE THIS
+    repoURL: https://github.com/jbrcoleman/RealTimeCDC-Platform
     targetRevision: main
     path: k8s/consumers
   
@@ -55,7 +55,7 @@ spec:
   project: cdc-platform
   
   source:
-    repoURL: https://github.com/YOUR_ORG/RealTimeCDC-Platform  # UPDATE THIS
+    repoURL: https://github.com/jbrcoleman/RealTimeCDC-Platform
     targetRevision: main
     path: k8s/consumers/inventory-service
   
@@ -94,7 +94,7 @@ spec:
   project: cdc-platform
   
   source:
-    repoURL: https://github.com/YOUR_ORG/RealTimeCDC-Platform  # UPDATE THIS
+    repoURL: https://github.com/jbrcoleman/RealTimeCDC-Platform
     targetRevision: main
     path: k8s/consumers/analytics-service
   
@@ -133,7 +133,7 @@ spec:
   project: cdc-platform
   
   source:
-    repoURL: https://github.com/YOUR_ORG/RealTimeCDC-Platform  # UPDATE THIS
+    repoURL: https://github.com/jbrcoleman/RealTimeCDC-Platform  # UPDATE THIS
     targetRevision: main
     path: k8s/consumers/search-indexer
   

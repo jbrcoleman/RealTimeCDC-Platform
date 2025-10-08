@@ -32,7 +32,7 @@ spec:
                       storage: 50Gi
         
         grafana:
-          adminPassword: admin  # Change this in production!
+          adminPassword: admin
           ingress:
             enabled: false
           

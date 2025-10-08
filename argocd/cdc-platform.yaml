@@ -11,7 +11,7 @@ spec:
   
   # Source repositories
   sourceRepos:
-    - 'https://github.com/YOUR_ORG/RealTimeCDC-Platform'  # UPDATE THIS
+    - 'https://github.com/jbrcoleman/RealTimeCDC-Platform'  # UPDATE THIS
     - 'https://strimzi.io/charts/'  # Strimzi Kafka Helm charts
     - 'https://apache.github.io/flink-kubernetes-operator'  # Flink Operator
   
