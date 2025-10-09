@@ -12,8 +12,17 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
-   addons = {
+  addons = {
+    vpc-cni = {
+      most_recent = true
+      before_compute = true  # Install VPC CNI before node groups
+    }
+    kube-proxy = {
+      most_recent = true
+      before_compute = true
+    }
     coredns = {
+      most_recent = true
       configuration_values = jsonencode({
         tolerations = [
           # Allow CoreDNS to run on the same nodes as the Karpenter controller
@@ -26,15 +35,16 @@ module "eks" {
         ]
       })
     }
-    eks-pod-identity-agent = {}
-    kube-proxy             = {}
-    vpc-cni                = {}
+    eks-pod-identity-agent = {
+      most_recent = true
+      before_compute = true
+    }
   }
 
   eks_managed_node_groups = {
     karpenter = {
-      ami_type       = "BOTTLEROCKET_x86_64"
-      instance_types = ["m5.large"]
+      ami_type       = "AL2023_x86_64_STANDARD"
+      instance_types = ["t3.medium"] 
 
       min_size     = 2
       max_size     = 3

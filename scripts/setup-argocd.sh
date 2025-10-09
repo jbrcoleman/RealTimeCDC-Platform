@@ -27,6 +27,15 @@ kubectl wait --for=condition=available --timeout=300s \
 echo "✓ ArgoCD is ready"
 echo ""
 
+# Configure ArgoCD for insecure mode (required for GitHub Codespaces and similar environments)
+echo "Configuring ArgoCD for insecure mode..."
+kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.insecure":"true"}}'
+kubectl rollout restart deployment argocd-server -n argocd
+kubectl wait --for=condition=available --timeout=120s deployment/argocd-server -n argocd
+
+echo "✓ ArgoCD configured for insecure mode"
+echo ""
+
 # Get initial admin password
 echo "Retrieving ArgoCD initial admin password..."
 ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
@@ -37,8 +46,9 @@ echo "ArgoCD Installation Complete!"
 echo "==================================================================="
 echo ""
 echo "Access ArgoCD UI:"
-echo "  1. Port forward: kubectl port-forward svc/argocd-server -n argocd 8080:443"
-echo "  2. Open browser: https://localhost:8080"
+echo "  1. Port forward: kubectl port-forward svc/argocd-server -n argocd 8080:80"
+echo "  2. GitHub Codespaces: Go to PORTS tab and open port 8080 in browser"
+echo "     Local: Open browser to http://localhost:8080"
 echo "  3. Login with:"
 echo "     Username: admin"
 echo "     Password: $ARGOCD_PASSWORD"
