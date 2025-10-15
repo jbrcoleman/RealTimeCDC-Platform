@@ -115,6 +115,9 @@ RealTimeCDC-Platform/
 │       └── search-indexer/       # Search index updater
 │
 ├── scripts/                       # Automation scripts
+│   ├── schema.sql                # Database schema definition
+│   ├── init-database.sh          # Initialize RDS with schema
+│   ├── install-kafka.sh          # Install Kafka cluster via Helm
 │   ├── apply-service-accounts.sh # Deploy K8s service accounts
 │   └── setup-argocd.sh           # Install and configure ArgoCD
 │
@@ -201,13 +204,41 @@ chmod +x scripts/apply-service-accounts.sh
 ./scripts/apply-service-accounts.sh
 ```
 
-### 6. Install ArgoCD
+### 6. Initialize Database Schema
+```bash
+chmod +x scripts/init-database.sh
+./scripts/init-database.sh
+```
+
+**What gets created:**
+- ✅ E-commerce tables: `products`, `orders`, `order_items`
+- ✅ Sample data: 5 products, 3 orders, 4 order items
+- ✅ CDC enabled: All tables configured with `REPLICA IDENTITY FULL`
+- ✅ Indexes for query performance
+- ✅ Foreign key relationships
+
+**Alternative: Manual Schema Creation**
+```bash
+# Get RDS endpoint
+cd terraform
+terraform output rds_endpoint
+
+# Connect using psql
+kubectl run psql-client --rm -it --restart=Never \
+  --image=postgres:16 --namespace=default \
+  -- psql -h <rds-endpoint> -U dbadmin -d ecommerce
+
+# Run the schema file
+\i scripts/schema.sql
+```
+
+### 7. Install ArgoCD
 ```bash
 chmod +x scripts/setup-argocd.sh
 ./scripts/setup-argocd.sh
 ```
 
-### 7. Update Repository URLs
+### 8. Update Repository URLs
 Update all files in `argocd/` directory:
 ```bash
 # Find files to update
@@ -220,7 +251,7 @@ grep -r "YOUR_ORG" argocd/
 # - argocd/apps/*.yaml
 ```
 
-### 8. Deploy Platform via ArgoCD
+### 9. Deploy Platform via ArgoCD
 ```bash
 # Apply ArgoCD project
 kubectl apply -f argocd/projects/cdc-platform.yaml
@@ -263,23 +294,65 @@ The platform uses IAM Roles for Service Accounts (IRSA) for secure, pod-level AW
 
 ## 🗄️ Database Schema
 
-The platform uses a sample e-commerce schema:
+The platform uses a sample e-commerce schema with three main tables designed for Change Data Capture.
 
 ### Tables
-- **products**: Product catalog with inventory tracking
-- **orders**: Customer orders and status
-- **order_items**: Line items within orders
 
-All tables are configured with:
-- `REPLICA IDENTITY FULL`: Required for Debezium CDC
-- Primary keys and foreign key relationships
-- Timestamps for audit tracking
+#### Products Table
+```sql
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    price DECIMAL(10,2) NOT NULL,
+    stock_quantity INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### Orders Table
+```sql
+CREATE TABLE orders (
+    id SERIAL PRIMARY KEY,
+    customer_id INTEGER NOT NULL,
+    total_amount DECIMAL(10,2) NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### Order Items Table
+```sql
+CREATE TABLE order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER REFERENCES orders(id),
+    product_id INTEGER REFERENCES products(id),
+    quantity INTEGER NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
 
 ### CDC Configuration
-- Logical replication enabled on RDS
-- Replication slot: `debezium`
-- Publication: `dbserver1`
-- WAL level: `logical`
+
+All tables are configured with:
+- **REPLICA IDENTITY FULL**: Required for Debezium to capture full row state
+- **Primary keys**: For row identification
+- **Foreign key relationships**: Between orders, products, and order_items
+- **Timestamps**: For audit tracking
+- **Indexes**: For query performance
+
+### RDS PostgreSQL Settings
+- **WAL level**: `logical` (enables change data capture)
+- **Max replication slots**: 10
+- **Max WAL senders**: 25
+- **RDS logical replication**: Enabled via parameter group
+
+### Schema Files
+- `scripts/schema.sql`: Complete schema definition with sample data
+- `scripts/init-database.sh`: Automated initialization script
 
 ## 🔄 GitOps Workflow
 

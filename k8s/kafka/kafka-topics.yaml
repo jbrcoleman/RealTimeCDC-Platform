@@ -1,0 +1,214 @@
+---
+# Kafka Topics for CDC Platform
+# These topics will be automatically created by Debezium, but pre-creating them
+# gives us control over partitions, replication, and retention policies
+
+# Products CDC Topic
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: dbserver1.public.products
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform
+    app: kafka
+    topic-type: cdc
+spec:
+  partitions: 3
+  replicas: 3
+  config:
+    # Retention for 7 days
+    retention.ms: 604800000
+    # Keep data even after consumption
+    cleanup.policy: delete
+    # Compression for storage efficiency
+    compression.type: snappy
+    # Min in-sync replicas for durability
+    min.insync.replicas: 2
+    # Segment size for better performance
+    segment.bytes: 1073741824
+---
+# Orders CDC Topic
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: dbserver1.public.orders
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform
+    app: kafka
+    topic-type: cdc
+spec:
+  partitions: 3
+  replicas: 3
+  config:
+    retention.ms: 604800000
+    cleanup.policy: delete
+    compression.type: snappy
+    min.insync.replicas: 2
+    segment.bytes: 1073741824
+---
+# Order Items CDC Topic
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: dbserver1.public.order-items
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform
+    app: kafka
+    topic-type: cdc
+spec:
+  partitions: 3
+  replicas: 3
+  config:
+    retention.ms: 604800000
+    cleanup.policy: delete
+    compression.type: snappy
+    min.insync.replicas: 2
+    segment.bytes: 1073741824
+---
+# Debezium Schema Changes Topic
+# Captures DDL changes to the database schema
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: dbserver1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform
+    app: kafka
+    topic-type: schema-changes
+spec:
+  partitions: 1
+  replicas: 3
+  config:
+    # Keep schema changes for longer (30 days)
+    retention.ms: 2592000000
+    cleanup.policy: delete
+    compression.type: snappy
+    min.insync.replicas: 2
+---
+# Kafka Connect Config Topic
+# Stores connector configurations
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: connect-configs
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform
+    app: kafka
+    topic-type: connect-internal
+spec:
+  partitions: 1
+  replicas: 3
+  config:
+    # Keep configs indefinitely with compaction
+    cleanup.policy: compact
+    compression.type: snappy
+    min.insync.replicas: 2
+---
+# Kafka Connect Offsets Topic
+# Tracks source connector offsets
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: connect-offsets
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform
+    app: kafka
+    topic-type: connect-internal
+spec:
+  partitions: 25
+  replicas: 3
+  config:
+    cleanup.policy: compact
+    compression.type: snappy
+    min.insync.replicas: 2
+---
+# Kafka Connect Status Topic
+# Tracks connector and task statuses
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: connect-status
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform
+    app: kafka
+    topic-type: connect-internal
+spec:
+  partitions: 5
+  replicas: 3
+  config:
+    cleanup.policy: compact
+    compression.type: snappy
+    min.insync.replicas: 2
+---
+# Dead Letter Queue Topic
+# For failed/rejected CDC events
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: cdc-dlq
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform
+    app: kafka
+    topic-type: dlq
+spec:
+  partitions: 3
+  replicas: 3
+  config:
+    # Keep DLQ data for 30 days for investigation
+    retention.ms: 2592000000
+    cleanup.policy: delete
+    compression.type: snappy
+    min.insync.replicas: 2
+---
+# Compacted CDC Topic for Products (Latest State Only)
+# Useful for rebuilding state or downstream systems that need current state
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: dbserver1.public.products.compacted
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform
+    app: kafka
+    topic-type: cdc-compacted
+spec:
+  partitions: 3
+  replicas: 3
+  config:
+    # Compaction keeps only latest value per key
+    cleanup.policy: compact
+    compression.type: snappy
+    min.insync.replicas: 2
+    # Compact more frequently for fresher state
+    segment.ms: 3600000  # 1 hour
+    min.compaction.lag.ms: 0
+    max.compaction.lag.ms: 86400000  # 24 hours
+---
+# Compacted CDC Topic for Orders
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: dbserver1.public.orders.compacted
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform
+    app: kafka
+    topic-type: cdc-compacted
+spec:
+  partitions: 3
+  replicas: 3
+  config:
+    cleanup.policy: compact
+    compression.type: snappy
+    min.insync.replicas: 2
+    segment.ms: 3600000
+    min.compaction.lag.ms: 0
+    max.compaction.lag.ms: 86400000

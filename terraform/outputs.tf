@@ -57,3 +57,40 @@ output "external_secrets_role_arn" {
   description = "IAM role ARN for External Secrets Operator"
   value       = module.external_secrets_irsa.iam_role_arn
 }
+
+# RDS Outputs
+output "rds_endpoint" {
+  description = "RDS PostgreSQL endpoint (without port)"
+  value       = aws_db_instance.postgres.address
+}
+
+output "rds_endpoint_full" {
+  description = "RDS PostgreSQL endpoint with port"
+  value       = aws_db_instance.postgres.endpoint
+}
+
+output "rds_database_name" {
+  description = "RDS database name"
+  value       = aws_db_instance.postgres.db_name
+}
+
+output "rds_username" {
+  description = "RDS master username"
+  value       = aws_db_instance.postgres.username
+  sensitive   = true
+}
+
+output "rds_port" {
+  description = "RDS PostgreSQL port"
+  value       = aws_db_instance.postgres.port
+}
+
+output "rds_instance_id" {
+  description = "RDS instance identifier"
+  value       = aws_db_instance.postgres.identifier
+}
+
+output "ebs_csi_driver_role_arn" {
+  description = "IAM role ARN for EBS CSI Driver service account"
+  value       = module.ebs_csi_driver_irsa.iam_role_arn
+}

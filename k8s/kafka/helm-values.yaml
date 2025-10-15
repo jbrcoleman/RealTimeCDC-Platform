@@ -1,0 +1,33 @@
+# Strimzi Kafka Operator Helm Values
+# Simplified configuration for CDC Platform
+
+# Namespace to watch for Kafka resources
+watchNamespaces:
+  - kafka
+
+# Logging configuration
+logLevel: INFO
+
+# Resource limits for operator
+resources:
+  limits:
+    memory: 384Mi
+    cpu: 1000m
+  requests:
+    memory: 384Mi
+    cpu: 200m
+
+# Feature gates (enable/disable features)
+featureGates: ""
+
+# Labels to add to operator pods
+labels:
+  app: strimzi-operator
+  component: cluster-operator
+  platform: cdc
+
+# Annotations to add to operator pods
+annotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
