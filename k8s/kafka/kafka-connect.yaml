@@ -22,3 +22,11 @@ spec:
     value.converter: org.apache.kafka.connect.json.JsonConverter
     key.converter.schemas.enable: true
     value.converter.schemas.enable: true
+    # Enable Kubernetes Secret Provider
+    config.providers: secrets
+    config.providers.secrets.class: io.strimzi.kafka.KubernetesSecretConfigProvider
+  externalConfiguration:
+    volumes:
+      - name: db-credentials
+        secret:
+          secretName: db-credentials

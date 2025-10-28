@@ -1,0 +1,66 @@
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: postgres-connector
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform-connect
+    app: debezium
+    platform: cdc
+spec:
+  class: io.debezium.connector.postgresql.PostgresConnector
+  tasksMax: 1
+  config:
+    # Database connection
+    database.hostname: cdc-platform-postgres.cfmnf9crsezz.us-east-1.rds.amazonaws.com
+    database.port: 5432
+    database.user: dbadmin
+    database.password: "${secrets:db-credentials:password}"
+    database.dbname: ecommerce
+
+    # SSL configuration for RDS
+    database.sslmode: require
+
+    # Connector identification
+    topic.prefix: dbserver1
+    database.server.name: dbserver1
+
+    # Snapshot settings
+    snapshot.mode: initial
+
+    # Publication and slot names
+    plugin.name: pgoutput
+    publication.name: debezium_publication
+    slot.name: debezium_slot
+
+    # Schema and table filtering
+    table.include.list: public.products,public.orders,public.order_items
+
+    # Message formatting
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: true
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter.schemas.enable: true
+
+    # Topic configuration
+    topic.creation.default.replication.factor: 2
+    topic.creation.default.partitions: 3
+    topic.creation.default.cleanup.policy: delete
+    topic.creation.default.retention.ms: 604800000  # 7 days
+
+    # Transform configuration to flatten nested structures
+    transforms: unwrap
+    transforms.unwrap.type: io.debezium.transforms.ExtractNewRecordState
+    transforms.unwrap.drop.tombstones: false
+    transforms.unwrap.delete.handling.mode: rewrite
+    transforms.unwrap.add.fields: op,source.ts_ms,source.db,source.table
+
+    # Heartbeat to keep slot active
+    heartbeat.interval.ms: 10000
+    heartbeat.topics.prefix: __debezium-heartbeat
+
+    # Error handling
+    errors.tolerance: none
+    errors.log.enable: true
+    errors.log.include.messages: true

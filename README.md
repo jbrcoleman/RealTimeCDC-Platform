@@ -129,7 +129,7 @@ RealTimeCDC-Platform/
 
 ### Required Tools
 - **AWS CLI** (v2.x): AWS authentication and resource management
-- **Terraform** (>= 1.5): Infrastructure provisioning
+- **Terraform** (>= 1.10): Infrastructure provisioning (required for write-only attributes)
 - **kubectl** (>= 1.28): Kubernetes CLI
 - **Helm** (>= 3.12): Kubernetes package manager
 - **ArgoCD CLI** (optional): GitOps management
@@ -217,7 +217,58 @@ chmod +x scripts/init-database.sh
 - ✅ Indexes for query performance
 - ✅ Foreign key relationships
 
-**Alternative: Manual Schema Creation**
+### 7. Install Kafka & Kafka Connect
+```bash
+chmod +x scripts/install-kafka.sh
+./scripts/install-kafka.sh
+```
+
+**What gets created:**
+- ✅ Strimzi Kafka Operator (v0.48.0)
+- ✅ Kafka cluster (v4.1.0) in KRaft mode - 2 brokers
+- ✅ Kafka Connect with custom Debezium image
+- ✅ CDC topics for products, orders, order_items
+
+### 8. Deploy Debezium CDC Connector
+
+Build custom Kafka Connect image with Debezium:
+```bash
+# Create ECR repository
+aws ecr create-repository --repository-name kafka-connect-debezium --region us-east-1
+
+# Build and push custom image (see DEPLOYMENT.md for full commands)
+# Image includes Debezium PostgreSQL connector v2.7.0
+
+# Update Kafka Connect to use custom image
+kubectl patch kafkaconnect cdc-platform-connect -n kafka --type merge \
+  -p '{"spec":{"image":"<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/kafka-connect-debezium:2.7.0"}}'
+
+# Create database credentials secret
+PASSWORD=$(aws secretsmanager get-secret-value --secret-id cdc-platform-db-master-password \
+  --query SecretString --output text | tr -d '\n')
+echo -n "$PASSWORD" > /tmp/db_password.txt
+kubectl create secret generic db-credentials --from-file=password=/tmp/db_password.txt -n kafka
+
+# Deploy Debezium connector
+kubectl apply -f k8s/debezium/postgres-connector.yaml
+
+# Verify CDC is working
+kubectl get kafkaconnector -n kafka
+kubectl exec -n kafka cdc-platform-kafka-brokers-0 -- \
+  bin/kafka-topics.sh --bootstrap-server localhost:9092 --list | grep dbserver1
+```
+
+**What gets created:**
+- ✅ Custom Kafka Connect image with Debezium in ECR
+- ✅ Debezium PostgreSQL connector configured
+- ✅ CDC topics capturing real-time database changes
+- ✅ Replication slot and publication in PostgreSQL
+
+For detailed Debezium deployment steps, see [DEPLOYMENT.md](DEPLOYMENT.MD#58-deploy-debezium-cdc-connector).
+
+### 9. Install ArgoCD (Optional)
+
+For GitOps-based deployment:
 ```bash
 # Get RDS endpoint
 cd terraform

@@ -18,7 +18,7 @@ Terraform (AWS)              ArgoCD (Kubernetes)
 ## Prerequisites
 
 - AWS CLI configured with appropriate credentials
-- Terraform >= 1.5
+- Terraform >= 1.10
 - kubectl >= 1.28
 - Helm >= 3.12
 - Git
@@ -46,6 +46,7 @@ terraform apply
 This creates:
 - ✅ VPC with public/private subnets
 - ✅ EKS cluster with Karpenter
+- ✅ EKS addons (VPC-CNI, CoreDNS, kube-proxy, Pod Identity Agent, EBS CSI Driver)
 - ✅ RDS PostgreSQL with logical replication enabled
 - ✅ S3 buckets (data lake, DLQ, Kafka Connect storage)
 - ✅ IAM roles for service accounts (IRSA)
@@ -67,6 +68,44 @@ kubectl get nodes
 kubectl get pods -A
 ```
 
+### 1.5 Deploy Karpenter NodePool
+
+**IMPORTANT**: Terraform deploys Karpenter itself, but doesn't apply the NodePool configuration. Without this step, only controller nodes exist (with taints), preventing regular workloads from scheduling.
+
+```bash
+cd ..  # Back to project root
+
+# Apply Karpenter NodePool configuration to enable worker node provisioning
+kubectl apply -f k8s/karpenter/karpenter.yaml
+
+# Wait for Karpenter to provision worker nodes (1-2 minutes)
+kubectl get nodes -w
+```
+
+**What this does:**
+- Creates EC2NodeClass defining node configuration (AMI, subnets, security groups, IAM role)
+- Creates NodePool that auto-provisions nodes based on pending pod requirements
+- Karpenter will automatically launch worker nodes when workloads are scheduled
+
+**Expected output after 1-2 minutes:**
+```bash
+# You should see new worker nodes in addition to the controller nodes
+kubectl get nodes
+# NAME                        STATUS   ROLES    AGE
+# ip-10-1-x-xx.ec2.internal   Ready    <none>   45s   # Worker node (no taints)
+# ip-10-1-x-xx.ec2.internal   Ready    <none>   10m   # Controller node
+# ip-10-1-x-xx.ec2.internal   Ready    <none>   10m   # Controller node
+```
+
+**Verify NodePool is active:**
+```bash
+kubectl get nodepool
+# NAME      NODECLASS   NODES   READY   AGE
+# default   default     0       True    30s
+```
+
+When pods are scheduled, Karpenter will automatically create NodeClaims and provision EC2 instances.
+
 ## Step 2: Apply Kubernetes Service Accounts
 
 ```bash
@@ -85,6 +124,12 @@ This creates:
 - ✅ Proper labels for organization
 
 ## Step 3: Initialize Database Schema
+
+**Prerequisites:**
+- ✅ Karpenter NodePool applied (Step 1.5)
+- ✅ Worker nodes provisioned and Ready
+
+> **Note**: If you skip Step 1.5, the database initialization job will timeout because pods can't be scheduled on controller-only nodes.
 
 ### 3.1 Automated Setup (Recommended)
 
@@ -329,38 +374,17 @@ The schema includes:
 - ✅ Indexes for performance
 - ✅ Timestamps for audit tracking
 
-## Step 4: Install EBS CSI Driver (Required for Kafka)
+## Step 4: Verify EBS CSI Driver (Installed by Terraform)
 
-Before deploying Kafka, the EBS CSI driver must be installed to provision persistent volumes.
+The EBS CSI driver addon is automatically installed by Terraform during cluster creation (configured in `terraform/eks.tf`). This driver is required for Kafka to provision persistent volumes.
 
-### 4.1 Verify Terraform Created IAM Role
+> **Note**: If you previously installed the EBS CSI driver manually using `aws eks create-addon`, you can import it into Terraform state to avoid conflicts on the next `terraform apply`:
+> ```bash
+> cd terraform
+> terraform import 'module.eks.aws_eks_addon.this["aws-ebs-csi-driver"]' cdc-platform:aws-ebs-csi-driver
+> ```
 
-The EBS CSI IAM role was created by Terraform in `terraform/iam.tf`:
-
-```bash
-cd terraform
-terraform output ebs_csi_driver_role_arn
-# Output: arn:aws:iam::ACCOUNT_ID:role/cdc-platform-ebs-csi-driver
-```
-
-### 4.2 Install EBS CSI Driver Addon
-
-```bash
-# Install the addon with the IAM role
-aws eks create-addon \
-  --cluster-name cdc-platform \
-  --addon-name aws-ebs-csi-driver \
-  --service-account-role-arn $(terraform output -raw ebs_csi_driver_role_arn) \
-  --region us-east-1
-
-# Wait for it to be active
-aws eks wait addon-active \
-  --cluster-name cdc-platform \
-  --addon-name aws-ebs-csi-driver \
-  --region us-east-1
-```
-
-### 4.3 Verify EBS CSI Driver
+### 4.1 Verify Installation
 
 ```bash
 # Check controller pods
@@ -548,62 +572,310 @@ kubectl exec -n kafka cdc-platform-connect-connect-0 -- curl -s localhost:8083/c
 # Should show available connectors (MirrorSource, etc.)
 ```
 
-### 5.8 Kafka Connect - Current Limitations
+### 5.8 Deploy Debezium CDC Connector
 
-The current Kafka Connect deployment uses the base Apache Kafka Connect 4.1.0 image, which **does not include the Debezium PostgreSQL connector**.
+**Prerequisites:**
+- ✅ Kafka cluster running
+- ✅ Kafka Connect deployed
+- ✅ RDS PostgreSQL with CDC enabled
 
-**Next Steps for CDC:**
-To enable CDC from PostgreSQL, you'll need to add the Debezium connector. Options include:
+#### 5.8.1 Build Custom Kafka Connect Image with Debezium
 
-1. **Build Custom Image** (Recommended for production):
-   ```bash
-   # Create Dockerfile
-   FROM quay.io/strimzi/kafka:0.48.0-kafka-4.1.0
-   USER root
-   RUN mkdir -p /opt/kafka/plugins/debezium
-   RUN curl -L https://repo1.maven.org/maven2/io/debezium/debezium-connector-postgres/2.7.0.Final/debezium-connector-postgres-2.7.0.Final-plugin.tar.gz \
-       | tar xz -C /opt/kafka/plugins/debezium
-   USER 1001
+The base Kafka Connect image doesn't include Debezium, so we need to build a custom image:
 
-   # Build and push
-   docker build -t <your-registry>/kafka-connect-debezium:4.1.0 .
-   docker push <your-registry>/kafka-connect-debezium:4.1.0
+```bash
+# Create ECR repository (if not exists)
+aws ecr create-repository \
+  --repository-name kafka-connect-debezium \
+  --region us-east-1 \
+  --image-scanning-configuration scanOnPush=true
 
-   # Update kafka-connect.yaml to use your image
-   # Add under spec:
-   #   image: <your-registry>/kafka-connect-debezium:4.1.0
-   ```
+# Create Dockerfile
+cat > /tmp/Dockerfile.kafka-connect << 'EOF'
+FROM quay.io/strimzi/kafka:0.48.0-kafka-4.1.0
+USER root:root
+RUN mkdir -p /opt/kafka/plugins/debezium
+RUN curl -L https://repo1.maven.org/maven2/io/debezium/debezium-connector-postgres/2.7.0.Final/debezium-connector-postgres-2.7.0.Final-plugin.tar.gz \
+    | tar xz -C /opt/kafka/plugins/debezium --strip-components=1
+USER 1001
+EOF
 
-2. **Use Strimzi Build** (For development, requires image registry):
-   Add to `kafka-connect.yaml` under `spec`:
-   ```yaml
-   build:
-     output:
-       type: docker
-       image: <your-registry>/kafka-connect-build:latest
-     plugins:
-       - name: debezium-postgres-connector
-         artifacts:
-           - type: tgz
-             url: https://repo1.maven.org/maven2/io/debezium/debezium-connector-postgres/2.7.0.Final/debezium-connector-postgres-2.7.0.Final-plugin.tar.gz
-   ```
+# Login to ECR
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
 
-3. **Manual Installation** (Quick test, not persistent):
-   ```bash
-   kubectl exec -n kafka cdc-platform-connect-connect-0 -- bash -c "
-   mkdir -p /opt/kafka/plugins/debezium &&
-   cd /opt/kafka/plugins/debezium &&
-   curl -L https://repo1.maven.org/maven2/io/debezium/debezium-connector-postgres/2.7.0.Final/debezium-connector-postgres-2.7.0.Final-plugin.tar.gz | tar xz
-   "
+# Build image
+cd /tmp
+docker build -t kafka-connect-debezium:2.7.0 -f Dockerfile.kafka-connect .
 
-   # Restart Connect pod to load plugin
-   kubectl delete pod -n kafka cdc-platform-connect-connect-0
-   ```
+# Tag and push to ECR
+docker tag kafka-connect-debezium:2.7.0 \
+  <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/kafka-connect-debezium:2.7.0
 
-After adding the Debezium connector, verify it's available:
+docker push <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/kafka-connect-debezium:2.7.0
+```
+
+#### 5.8.2 Update Kafka Connect to Use Custom Image
+
+Update `k8s/kafka/kafka-connect.yaml`:
+
+```yaml
+spec:
+  version: 4.1.0
+  replicas: 1
+  image: <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/kafka-connect-debezium:2.7.0
+  # ... rest of config
+  config:
+    # ... existing config
+    # Enable Kubernetes Secret Provider
+    config.providers: secrets
+    config.providers.secrets.class: io.strimzi.kafka.KubernetesSecretConfigProvider
+  externalConfiguration:
+    volumes:
+      - name: db-credentials
+        secret:
+          secretName: db-credentials
+```
+
+Apply the update:
+```bash
+kubectl patch kafkaconnect cdc-platform-connect -n kafka --type merge \
+  -p '{"spec":{"image":"<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/kafka-connect-debezium:2.7.0"}}'
+
+# Wait for pod to restart
+kubectl wait --for=condition=ready --timeout=120s pod/cdc-platform-connect-connect-0 -n kafka
+```
+
+Verify Debezium plugin is loaded:
 ```bash
 kubectl exec -n kafka cdc-platform-connect-connect-0 -- \
-  curl -s localhost:8083/connector-plugins | grep -i debezium
+  curl -s localhost:8083/connector-plugins | grep -i postgres
+# Should show: io.debezium.connector.postgresql.PostgresConnector
+```
+
+#### 5.8.3 Create Database Credentials Secret
+
+```bash
+# Get RDS password from Secrets Manager
+PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id cdc-platform-db-master-password \
+  --query SecretString \
+  --output text | tr -d '\n')
+
+# Create secret in kafka namespace (without trailing newline)
+echo -n "$PASSWORD" > /tmp/db_password.txt
+kubectl create secret generic db-credentials \
+  --from-file=password=/tmp/db_password.txt \
+  -n kafka
+rm /tmp/db_password.txt
+```
+
+#### 5.8.4 Create Debezium Connector Configuration
+
+Create `k8s/debezium/postgres-connector.yaml`:
+
+```yaml
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: postgres-connector
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform-connect
+    app: debezium
+    platform: cdc
+spec:
+  class: io.debezium.connector.postgresql.PostgresConnector
+  tasksMax: 1
+  config:
+    # Database connection
+    database.hostname: <RDS_ENDPOINT>
+    database.port: 5432
+    database.user: dbadmin
+    database.password: "${secrets:db-credentials:password}"
+    database.dbname: ecommerce
+
+    # SSL configuration for RDS
+    database.sslmode: require
+
+    # Connector identification
+    topic.prefix: dbserver1
+    database.server.name: dbserver1
+
+    # Snapshot settings
+    snapshot.mode: initial
+
+    # Publication and slot names
+    plugin.name: pgoutput
+    publication.name: debezium_publication
+    slot.name: debezium_slot
+
+    # Schema and table filtering
+    table.include.list: public.products,public.orders,public.order_items
+
+    # Message formatting
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: true
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter.schemas.enable: true
+
+    # Topic configuration
+    topic.creation.default.replication.factor: 2
+    topic.creation.default.partitions: 3
+    topic.creation.default.cleanup.policy: delete
+    topic.creation.default.retention.ms: 604800000  # 7 days
+
+    # Transform configuration to flatten nested structures
+    transforms: unwrap
+    transforms.unwrap.type: io.debezium.transforms.ExtractNewRecordState
+    transforms.unwrap.drop.tombstones: false
+    transforms.unwrap.delete.handling.mode: rewrite
+    transforms.unwrap.add.fields: op,source.ts_ms,source.db,source.table
+
+    # Heartbeat to keep slot active
+    heartbeat.interval.ms: 10000
+    heartbeat.topics.prefix: __debezium-heartbeat
+
+    # Error handling
+    errors.tolerance: none
+    errors.log.enable: true
+    errors.log.include.messages: true
+```
+
+**Important Notes:**
+- Replace `<RDS_ENDPOINT>` with your actual RDS endpoint
+- The secret reference `${secrets:db-credentials:password}` references the volume name (not namespace path)
+- SSL is required for RDS connections
+
+#### 5.8.5 Deploy Debezium Connector
+
+```bash
+# Get RDS endpoint
+cd terraform
+RDS_ENDPOINT=$(terraform output -raw rds_endpoint)
+cd ..
+
+# Update connector config with actual endpoint
+sed -i "s/<RDS_ENDPOINT>/$RDS_ENDPOINT/g" k8s/debezium/postgres-connector.yaml
+
+# Deploy connector
+kubectl apply -f k8s/debezium/postgres-connector.yaml
+
+# Wait for connector to be ready
+kubectl wait --for=condition=ready --timeout=60s \
+  kafkaconnector/postgres-connector -n kafka
+```
+
+#### 5.8.6 Verify Debezium Connector
+
+```bash
+# Check connector status
+kubectl get kafkaconnector -n kafka
+# NAME                 CLUSTER                CONNECTOR CLASS                                      MAX TASKS   READY
+# postgres-connector   cdc-platform-connect   io.debezium.connector.postgresql.PostgresConnector   1           True
+
+# Check detailed status
+kubectl exec -n kafka cdc-platform-connect-connect-0 -- \
+  curl -s localhost:8083/connectors/postgres-connector/status | jq
+
+# Expected output:
+# {
+#   "name": "postgres-connector",
+#   "connector": { "state": "RUNNING" },
+#   "tasks": [{ "id": 0, "state": "RUNNING" }]
+# }
+
+# Check CDC topics were created
+kubectl exec -n kafka cdc-platform-kafka-brokers-0 -- \
+  bin/kafka-topics.sh --bootstrap-server localhost:9092 --list | grep dbserver1
+
+# Expected topics:
+# dbserver1.public.products
+# dbserver1.public.orders
+# dbserver1.public.order_items
+```
+
+#### 5.8.7 Test CDC Data Flow
+
+**View Initial Snapshot Data:**
+```bash
+kubectl exec -n kafka cdc-platform-kafka-brokers-0 -- \
+  bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic dbserver1.public.products \
+  --from-beginning \
+  --max-messages 5
+
+# You should see JSON messages with "__op":"r" (read/snapshot)
+```
+
+**Test Real-Time CDC:**
+```bash
+# Get RDS endpoint and password
+cd terraform
+RDS_ENDPOINT=$(terraform output -raw rds_endpoint)
+cd ..
+PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id cdc-platform-db-master-password \
+  --query SecretString --output text | tr -d '\n')
+
+# Insert test data
+kubectl run psql-cdc-test --rm -i --restart=Never \
+  --image=postgres:16 --namespace=kafka \
+  --env="PGPASSWORD=$PASSWORD" -- \
+  psql "sslmode=require host=$RDS_ENDPOINT port=5432 user=dbadmin dbname=ecommerce" \
+  -c "INSERT INTO products (name, description, price, stock_quantity)
+      VALUES ('Test Product', 'CDC Test', 99.99, 100);"
+
+# Consume latest events (wait 5 seconds for propagation)
+sleep 5
+kubectl exec -n kafka cdc-platform-kafka-brokers-0 -- \
+  bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic dbserver1.public.products \
+  --from-beginning \
+  --timeout-ms 3000 | tail -1 | jq '.payload | {id, name, stock_quantity, __op}'
+
+# You should see the new product with "__op":"c" (create)
+```
+
+#### 5.8.8 Troubleshooting Debezium
+
+**Connector Not Ready:**
+```bash
+# Check connector status details
+kubectl describe kafkaconnector postgres-connector -n kafka
+
+# Check Connect logs
+kubectl logs -n kafka cdc-platform-connect-connect-0 --tail=50
+
+# Common issues:
+# - Password authentication failed: Check secret is mounted and syntax is correct
+# - SSL required: Add database.sslmode: require to config
+# - Plugin not found: Verify custom image with Debezium is deployed
+```
+
+**No Events in Topics:**
+```bash
+# Check replication slot exists
+kubectl run psql-verify --rm -i --restart=Never \
+  --image=postgres:16 --namespace=kafka \
+  --env="PGPASSWORD=$PASSWORD" -- \
+  psql "sslmode=require host=$RDS_ENDPOINT port=5432 user=dbadmin dbname=ecommerce" \
+  -c "SELECT * FROM pg_replication_slots WHERE slot_name = 'debezium_slot';"
+
+# Check connector task status
+kubectl exec -n kafka cdc-platform-connect-connect-0 -- \
+  curl -s localhost:8083/connectors/postgres-connector/tasks/0/status | jq
+```
+
+**Restart Connector:**
+```bash
+# Delete and recreate
+kubectl delete kafkaconnector postgres-connector -n kafka
+sleep 5
+kubectl apply -f k8s/debezium/postgres-connector.yaml
 ```
 
 ## Step 6: Install ArgoCD

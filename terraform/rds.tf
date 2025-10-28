@@ -1,4 +1,4 @@
-resource "random_password" "db_master_password" {
+ephemeral "random_password" "db_master_password" {
   length           = 32
   special          = true
   override_special = "!#$%&*()-_=+[]{}<>:?"
@@ -12,8 +12,9 @@ resource "aws_secretsmanager_secret" "db_master_password" {
 }
 
 resource "aws_secretsmanager_secret_version" "db_master_password" {
-  secret_id     = aws_secretsmanager_secret.db_master_password.id
-  secret_string = random_password.db_master_password.result
+  secret_id                = aws_secretsmanager_secret.db_master_password.id
+  secret_string_wo         = ephemeral.random_password.db_master_password.result
+  secret_string_wo_version = 1
 }
 
 # Security group for RDS
@@ -113,9 +114,10 @@ resource "aws_db_instance" "postgres" {
   storage_type          = "gp3"
   storage_encrypted     = true
 
-  db_name  = "ecommerce"
-  username = "dbadmin"
-  password = random_password.db_master_password.result
+  db_name     = "ecommerce"
+  username    = "dbadmin"
+  password_wo = ephemeral.random_password.db_master_password.result
+  password_wo_version = aws_secretsmanager_secret_version.db_master_password.secret_string_wo_version
 
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.rds.id]
@@ -155,7 +157,6 @@ resource "aws_secretsmanager_secret_version" "db_connection" {
     port     = aws_db_instance.postgres.port
     database = aws_db_instance.postgres.db_name
     username = aws_db_instance.postgres.username
-    password = random_password.db_master_password.result
     endpoint = aws_db_instance.postgres.endpoint
   })
 }
