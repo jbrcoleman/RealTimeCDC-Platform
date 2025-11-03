@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+set +H  # Disable history expansion to handle ! in strings
 
 # Database Initialization Script for CDC Platform
 # This script creates the e-commerce schema in RDS PostgreSQL
@@ -14,6 +15,7 @@ cd terraform
 RDS_ENDPOINT=$(terraform output -raw rds_endpoint 2>/dev/null || echo "")
 RDS_DATABASE=$(terraform output -raw rds_database_name 2>/dev/null || echo "ecommerce")
 RDS_USERNAME=$(terraform output -raw rds_username 2>/dev/null || echo "dbadmin")
+SECRET_ARN=$(terraform output -raw rds_master_user_secret_arn 2>/dev/null)
 cd ..
 
 if [ -z "$RDS_ENDPOINT" ]; then
@@ -26,13 +28,18 @@ echo "✅ RDS Endpoint: $RDS_ENDPOINT"
 echo "✅ Database: $RDS_DATABASE"
 echo "✅ Username: $RDS_USERNAME"
 
-# Get database password from AWS Secrets Manager
+if [ -z "$SECRET_ARN" ]; then
+    echo "❌ Error: Could not get RDS secret ARN from Terraform outputs"
+    exit 1
+fi
+
+# Get database password from AWS Secrets Manager (RDS-managed secret)
 echo ""
 echo "🔐 Retrieving database password from Secrets Manager..."
 DB_PASSWORD=$(aws secretsmanager get-secret-value \
-    --secret-id cdc-platform-db-master-password \
-    --query SecretString \
-    --output text 2>/dev/null)
+    --secret-id "$SECRET_ARN" \
+    --query 'SecretString' \
+    --output text 2>/dev/null | jq -r '.password' | tr -d '\n')
 
 if [ -z "$DB_PASSWORD" ]; then
     echo "❌ Error: Could not retrieve password from Secrets Manager"
@@ -80,16 +87,16 @@ spec:
         - -c
         - |
           echo "Connecting to database..."
-          psql -h $RDS_ENDPOINT -U $RDS_USERNAME -d $RDS_DATABASE -f /scripts/schema.sql
+          psql "sslmode=require host=$RDS_ENDPOINT port=5432 user=$RDS_USERNAME dbname=$RDS_DATABASE" -f /scripts/schema.sql
           echo ""
           echo "✅ Schema created successfully"
           echo ""
           echo "Verifying configuration..."
-          psql -h $RDS_ENDPOINT -U $RDS_USERNAME -d $RDS_DATABASE -c "\dt"
+          psql "sslmode=require host=$RDS_ENDPOINT port=5432 user=$RDS_USERNAME dbname=$RDS_DATABASE" -c "\dt"
           echo ""
-          psql -h $RDS_ENDPOINT -U $RDS_USERNAME -d $RDS_DATABASE -c "SELECT COUNT(*) as product_count FROM products;"
-          psql -h $RDS_ENDPOINT -U $RDS_USERNAME -d $RDS_DATABASE -c "SELECT COUNT(*) as order_count FROM orders;"
-          psql -h $RDS_ENDPOINT -U $RDS_USERNAME -d $RDS_DATABASE -c "SELECT COUNT(*) as order_item_count FROM order_items;"
+          psql "sslmode=require host=$RDS_ENDPOINT port=5432 user=$RDS_USERNAME dbname=$RDS_DATABASE" -c "SELECT COUNT(*) as product_count FROM products;"
+          psql "sslmode=require host=$RDS_ENDPOINT port=5432 user=$RDS_USERNAME dbname=$RDS_DATABASE" -c "SELECT COUNT(*) as order_count FROM orders;"
+          psql "sslmode=require host=$RDS_ENDPOINT port=5432 user=$RDS_USERNAME dbname=$RDS_DATABASE" -c "SELECT COUNT(*) as order_item_count FROM order_items;"
         env:
         - name: RDS_ENDPOINT
           value: "$RDS_ENDPOINT"
@@ -141,15 +148,10 @@ spec:
       - name: psql
         image: postgres:16
         command:
-        - psql
-        - -h
-        - $RDS_ENDPOINT
-        - -U
-        - $RDS_USERNAME
-        - -d
-        - $RDS_DATABASE
+        - /bin/bash
         - -c
         - |
+          psql "sslmode=require host=$RDS_ENDPOINT port=5432 user=$RDS_USERNAME dbname=$RDS_DATABASE" -c "
           SELECT c.relname AS table_name,
                  CASE c.relreplident
                      WHEN 'd' THEN 'default'
@@ -162,7 +164,7 @@ spec:
           WHERE n.nspname = 'public'
             AND c.relkind = 'r'
             AND c.relname IN ('products', 'orders', 'order_items')
-          ORDER BY c.relname;
+          ORDER BY c.relname;"
         env:
         - name: RDS_ENDPOINT
           value: "$RDS_ENDPOINT"

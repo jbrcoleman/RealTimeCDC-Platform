@@ -1,0 +1,63 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: postgres-connector
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform-connect
+    app: debezium
+    platform: cdc
+spec:
+  class: io.debezium.connector.postgresql.PostgresConnector
+  tasksMax: 1
+  config:
+    # Database connection
+    database.hostname: ${env:RDS_ENDPOINT}
+    database.port: 5432
+    database.user: dbadmin
+    database.password: ${secrets:db-credentials:password}
+    database.dbname: ecommerce
+    database.sslmode: require
+
+    # Connector identification
+    database.server.name: dbserver1
+    topic.prefix: dbserver1
+
+    # PostgreSQL specific
+    plugin.name: pgoutput
+    slot.name: debezium_slot
+    publication.name: debezium_publication
+
+    # Snapshot configuration
+    snapshot.mode: initial
+
+    # Table filtering
+    table.include.list: public.products,public.orders,public.order_items
+
+    # Topic configuration
+    topic.creation.default.partitions: 3
+    topic.creation.default.replication.factor: 2
+    topic.creation.default.retention.ms: 604800000
+    topic.creation.default.cleanup.policy: delete
+
+    # Converters
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: true
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter.schemas.enable: true
+
+    # Transforms - unwrap CDC envelope
+    transforms: unwrap
+    transforms.unwrap.type: io.debezium.transforms.ExtractNewRecordState
+    transforms.unwrap.drop.tombstones: false
+    transforms.unwrap.delete.handling.mode: rewrite
+    transforms.unwrap.add.fields: op,source.ts_ms,source.db,source.table
+
+    # Heartbeat
+    heartbeat.interval.ms: 10000
+    heartbeat.topics.prefix: __debezium-heartbeat
+
+    # Error handling
+    errors.tolerance: none
+    errors.log.enable: true
+    errors.log.include.messages: true

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== Applying Kubernetes Service Accounts with IAM Role Annotations ==="
+echo "=== Applying Kubernetes Service Accounts with Pod Identity ==="
 
 # Check if terraform outputs are available
 if ! terraform -chdir=terraform output > /dev/null 2>&1; then
@@ -9,16 +9,8 @@ if ! terraform -chdir=terraform output > /dev/null 2>&1; then
     exit 1
 fi
 
-# Get IAM Role ARNs from Terraform outputs
-echo "Fetching IAM Role ARNs from Terraform..."
-KAFKA_CONNECT_ROLE_ARN=$(terraform -chdir=terraform output -raw kafka_connect_role_arn)
-DEBEZIUM_ROLE_ARN=$(terraform -chdir=terraform output -raw debezium_role_arn)
-CDC_CONSUMER_ROLE_ARN=$(terraform -chdir=terraform output -raw cdc_consumer_role_arn)
-FLINK_ROLE_ARN=$(terraform -chdir=terraform output -raw flink_role_arn)
-SCHEMA_REGISTRY_ROLE_ARN=$(terraform -chdir=terraform output -raw schema_registry_role_arn)
-EXTERNAL_SECRETS_ROLE_ARN=$(terraform -chdir=terraform output -raw external_secrets_role_arn)
-
-echo "✓ Successfully retrieved all IAM Role ARNs"
+echo "Note: IAM roles are now managed via EKS Pod Identity associations in Terraform."
+echo "Service accounts no longer need IRSA annotations."
 echo ""
 
 # Create namespaces first
@@ -27,16 +19,9 @@ kubectl apply -f k8s/namespaces/namespaces.yaml
 echo "✓ Namespaces created"
 echo ""
 
-# Apply service accounts with substituted role ARNs
-echo "Creating service accounts with IAM role annotations..."
-export KAFKA_CONNECT_ROLE_ARN
-export DEBEZIUM_ROLE_ARN
-export CDC_CONSUMER_ROLE_ARN
-export FLINK_ROLE_ARN
-export SCHEMA_REGISTRY_ROLE_ARN
-export EXTERNAL_SECRETS_ROLE_ARN
-
-envsubst < k8s/service-accounts/service-accounts.yaml | kubectl apply -f -
+# Apply service accounts directly (no substitution needed for Pod Identity)
+echo "Creating service accounts..."
+kubectl apply -f k8s/service-accounts/service-accounts.yaml
 echo "✓ Service accounts created"
 echo ""
 
@@ -56,4 +41,14 @@ echo "External Secrets namespace:"
 kubectl get sa -n external-secrets
 echo ""
 
-echo "=== Service accounts successfully created with IRSA! ==="
+# Show Pod Identity associations
+echo "Verifying Pod Identity associations (managed by Terraform)..."
+echo ""
+CLUSTER_NAME=$(terraform -chdir=terraform output -raw configure_kubectl | grep -o 'name [^ ]*' | cut -d' ' -f2)
+REGION=$(terraform -chdir=terraform output -raw configure_kubectl | grep -o 'region [^ ]*' | cut -d' ' -f2)
+
+echo "Pod Identity Associations for cluster: $CLUSTER_NAME"
+aws eks list-pod-identity-associations --cluster-name "$CLUSTER_NAME" --region "$REGION" --query 'associations[*].{Namespace:namespace,ServiceAccount:serviceAccount}' --output table 2>/dev/null || echo "Note: Run terraform apply to create Pod Identity associations"
+echo ""
+
+echo "=== Service accounts successfully created with Pod Identity! ==="

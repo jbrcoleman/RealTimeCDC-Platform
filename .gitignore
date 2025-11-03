@@ -14,3 +14,7 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+
+# Session notes (not committed)
+SESSION_NOTES.md
+next_step.txt

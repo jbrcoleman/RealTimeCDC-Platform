@@ -1,21 +1,5 @@
-ephemeral "random_password" "db_master_password" {
-  length           = 32
-  special          = true
-  override_special = "!#$%&*()-_=+[]{}<>:?"
-}
-
-resource "aws_secretsmanager_secret" "db_master_password" {
-  name                    = "${local.name}-db-master-password"
-  recovery_window_in_days = 0 
-
-  tags = local.tags
-}
-
-resource "aws_secretsmanager_secret_version" "db_master_password" {
-  secret_id                = aws_secretsmanager_secret.db_master_password.id
-  secret_string_wo         = ephemeral.random_password.db_master_password.result
-  secret_string_wo_version = 1
-}
+# RDS will manage the master password automatically
+# The password will be stored in AWS Secrets Manager by RDS
 
 # Security group for RDS
 resource "aws_security_group" "rds" {
@@ -106,7 +90,7 @@ resource "aws_db_parameter_group" "postgres_cdc" {
 resource "aws_db_instance" "postgres" {
   identifier     = "${local.name}-postgres"
   engine         = "postgres"
-  engine_version = "16.3"
+  engine_version = "16.10"
   instance_class = "db.t3.micro" 
 
   allocated_storage     = 20
@@ -116,8 +100,8 @@ resource "aws_db_instance" "postgres" {
 
   db_name     = "ecommerce"
   username    = "dbadmin"
-  password_wo = ephemeral.random_password.db_master_password.result
-  password_wo_version = aws_secretsmanager_secret_version.db_master_password.secret_string_wo_version
+  manage_master_user_password   = true
+  master_user_secret_kms_key_id = null  # Uses default AWS managed key
 
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.rds.id]

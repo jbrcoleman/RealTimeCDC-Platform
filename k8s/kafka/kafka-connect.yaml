@@ -10,6 +10,45 @@ spec:
   version: 4.1.0
   replicas: 1
   bootstrapServers: cdc-platform-kafka-bootstrap:9092
+  template:
+    pod:
+      tolerations:
+        # Allow Kafka Connect to run on spot instances
+        - key: karpenter.sh/spot
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            # Prefer spot instances for cost savings
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: karpenter.sh/capacity-type
+                    operator: In
+                    values:
+                      - spot
+    buildPod:
+      metadata:
+        annotations:
+          cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+      imagePullSecrets:
+        - name: ecr-credentials
+    connectContainer:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+  build:
+    output:
+      type: docker
+      image: 296592524620.dkr.ecr.us-east-1.amazonaws.com/cdc-platform-connect:latest
+      pushSecret: ecr-credentials
+    plugins:
+      - name: debezium-postgres-connector
+        artifacts:
+          - type: tgz
+            url: https://repo1.maven.org/maven2/io/debezium/debezium-connector-postgres/3.0.4.Final/debezium-connector-postgres-3.0.4.Final-plugin.tar.gz
   config:
     group.id: cdc-platform-connect-cluster
     offset.storage.topic: connect-offsets

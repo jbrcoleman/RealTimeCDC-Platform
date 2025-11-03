@@ -29,6 +29,25 @@ spec:
   jvmOptions:
     -Xms: 1024m
     -Xmx: 1024m
+  template:
+    pod:
+      tolerations:
+        # Allow Kafka brokers to run on spot instances
+        - key: karpenter.sh/spot
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            # Prefer spot instances for 70% cost savings
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: karpenter.sh/capacity-type
+                    operator: In
+                    values:
+                      - spot
 ---
 apiVersion: kafka.strimzi.io/v1beta2
 kind: Kafka
@@ -99,6 +118,12 @@ spec:
 
     template:
       pod:
+        tolerations:
+          # Allow Kafka to run on spot instances for cost savings
+          - key: karpenter.sh/spot
+            operator: Equal
+            value: "true"
+            effect: NoSchedule
         affinity:
           podAntiAffinity:
             requiredDuringSchedulingIgnoredDuringExecution:
@@ -109,6 +134,16 @@ spec:
                       values:
                         - cdc-platform-kafka
                 topologyKey: kubernetes.io/hostname
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              # Prefer spot instances (70% cost savings)
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - key: karpenter.sh/capacity-type
+                      operator: In
+                      values:
+                        - spot
 
   # Note: ZooKeeper removed - using KRaft mode
   entityOperator:

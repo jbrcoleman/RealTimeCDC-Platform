@@ -42,8 +42,19 @@ module "eks" {
       before_compute = true
     }
     aws-ebs-csi-driver = {
-      most_recent              = true
-      service_account_role_arn = module.ebs_csi_driver_irsa.iam_role_arn
+      most_recent = true
+      # Pod Identity association handles IAM role binding
+      configuration_values = jsonencode({
+        controller = {
+          tolerations = [
+            {
+              key      = "karpenter.sh/controller"
+              operator = "Exists"
+              effect   = "NoSchedule"
+            }
+          ]
+        }
+      })
     }
   }
 

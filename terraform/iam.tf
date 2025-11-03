@@ -1,17 +1,23 @@
-module "kafka_connect_irsa" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
+locals {
+  # RDS-managed secret ARN (null until RDS instance is created with manage_master_user_password)
+  rds_master_secret_arn = length(aws_db_instance.postgres.master_user_secret) > 0 ? aws_db_instance.postgres.master_user_secret[0].secret_arn : ""
+}
 
-  role_name = "${local.name}-kafka-connect"
+module "kafka_connect_pod_identity" {
+  source  = "terraform-aws-modules/eks-pod-identity/aws"
+  version = "~> 1.0"
 
-  role_policy_arns = {
-    policy = aws_iam_policy.kafka_connect.arn
+  name = "${local.name}-kafka-connect"
+
+  additional_policy_arns = {
+    kafka_connect = aws_iam_policy.kafka_connect.arn
   }
 
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks.oidc_provider_arn
-      namespace_service_accounts = ["kafka:kafka-connect"]
+  associations = {
+    kafka_connect = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "kafka"
+      service_account = "kafka-connect"
     }
   }
 
@@ -20,7 +26,7 @@ module "kafka_connect_irsa" {
 
 resource "aws_iam_policy" "kafka_connect" {
   name        = "${local.name}-kafka-connect-policy"
-  description = "Policy for Kafka Connect to access S3 and Secrets Manager"
+  description = "Policy for Kafka Connect to access S3, Secrets Manager, and ECR"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -57,10 +63,24 @@ resource "aws_iam_policy" "kafka_connect" {
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret"
         ]
-        Resource = [
+        Resource = compact([
           aws_secretsmanager_secret.db_connection.arn,
-          aws_secretsmanager_secret.db_master_password.arn
+          local.rds_master_secret_arn
+        ])
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:PutImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload"
         ]
+        Resource = "*"
       }
     ]
   })
@@ -73,20 +93,21 @@ resource "aws_iam_policy" "kafka_connect" {
 # Allows Debezium pods to read RDS credentials from Secrets Manager
 ################################################################################
 
-module "debezium_irsa" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
+module "debezium_pod_identity" {
+  source  = "terraform-aws-modules/eks-pod-identity/aws"
+  version = "~> 1.0"
 
-  role_name = "${local.name}-debezium"
+  name = "${local.name}-debezium"
 
-  role_policy_arns = {
-    policy = aws_iam_policy.debezium.arn
+  additional_policy_arns = {
+    debezium = aws_iam_policy.debezium.arn
   }
 
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks.oidc_provider_arn
-      namespace_service_accounts = ["kafka:debezium"]
+  associations = {
+    debezium = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "kafka"
+      service_account = "debezium"
     }
   }
 
@@ -106,10 +127,10 @@ resource "aws_iam_policy" "debezium" {
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret"
         ]
-        Resource = [
+        Resource = compact([
           aws_secretsmanager_secret.db_connection.arn,
-          aws_secretsmanager_secret.db_master_password.arn
-        ]
+          local.rds_master_secret_arn
+        ])
       }
     ]
   })
@@ -122,24 +143,31 @@ resource "aws_iam_policy" "debezium" {
 # For custom Python consumer services that process CDC events
 ################################################################################
 
-module "cdc_consumer_irsa" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
+module "cdc_consumer_pod_identity" {
+  source  = "terraform-aws-modules/eks-pod-identity/aws"
+  version = "~> 1.0"
 
-  role_name = "${local.name}-cdc-consumer"
+  name = "${local.name}-cdc-consumer"
 
-  role_policy_arns = {
-    policy = aws_iam_policy.cdc_consumer.arn
+  additional_policy_arns = {
+    cdc_consumer = aws_iam_policy.cdc_consumer.arn
   }
 
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks.oidc_provider_arn
-      namespace_service_accounts = [
-        "cdc-consumers:inventory-service",
-        "cdc-consumers:analytics-service",
-        "cdc-consumers:search-indexer"
-      ]
+  associations = {
+    inventory_service = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "cdc-consumers"
+      service_account = "inventory-service"
+    }
+    analytics_service = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "cdc-consumers"
+      service_account = "analytics-service"
+    }
+    search_indexer = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "cdc-consumers"
+      service_account = "search-indexer"
     }
   }
 
@@ -208,23 +236,26 @@ resource "aws_iam_policy" "cdc_consumer" {
 # Flink Service Account IAM Role (if using Flink for stream processing)
 ################################################################################
 
-module "flink_irsa" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
+module "flink_pod_identity" {
+  source  = "terraform-aws-modules/eks-pod-identity/aws"
+  version = "~> 1.0"
 
-  role_name = "${local.name}-flink"
+  name = "${local.name}-flink"
 
-  role_policy_arns = {
-    policy = aws_iam_policy.flink.arn
+  additional_policy_arns = {
+    flink = aws_iam_policy.flink.arn
   }
 
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks.oidc_provider_arn
-      namespace_service_accounts = [
-        "flink:flink-jobmanager",
-        "flink:flink-taskmanager"
-      ]
+  associations = {
+    jobmanager = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "flink"
+      service_account = "flink-jobmanager"
+    }
+    taskmanager = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "flink"
+      service_account = "flink-taskmanager"
     }
   }
 
@@ -283,20 +314,21 @@ resource "aws_iam_policy" "flink" {
 # Schema Registry Service Account IAM Role
 ################################################################################
 
-module "schema_registry_irsa" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
+module "schema_registry_pod_identity" {
+  source  = "terraform-aws-modules/eks-pod-identity/aws"
+  version = "~> 1.0"
 
-  role_name = "${local.name}-schema-registry"
+  name = "${local.name}-schema-registry"
 
-  role_policy_arns = {
-    policy = aws_iam_policy.schema_registry.arn
+  additional_policy_arns = {
+    schema_registry = aws_iam_policy.schema_registry.arn
   }
 
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks.oidc_provider_arn
-      namespace_service_accounts = ["kafka:schema-registry"]
+  associations = {
+    schema_registry = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "kafka"
+      service_account = "schema-registry"
     }
   }
 
@@ -342,20 +374,21 @@ resource "aws_iam_policy" "schema_registry" {
 # Allows ESO to sync secrets from AWS Secrets Manager to K8s secrets
 ################################################################################
 
-module "external_secrets_irsa" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
+module "external_secrets_pod_identity" {
+  source  = "terraform-aws-modules/eks-pod-identity/aws"
+  version = "~> 1.0"
 
-  role_name = "${local.name}-external-secrets"
+  name = "${local.name}-external-secrets"
 
-  role_policy_arns = {
-    policy = aws_iam_policy.external_secrets.arn
+  additional_policy_arns = {
+    external_secrets = aws_iam_policy.external_secrets.arn
   }
 
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks.oidc_provider_arn
-      namespace_service_accounts = ["external-secrets:external-secrets"]
+  associations = {
+    external_secrets = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "external-secrets"
+      service_account = "external-secrets"
     }
   }
 
@@ -376,10 +409,10 @@ resource "aws_iam_policy" "external_secrets" {
           "secretsmanager:DescribeSecret",
           "secretsmanager:ListSecrets"
         ]
-        Resource = [
-          "${aws_secretsmanager_secret.db_connection.arn}",
-          "${aws_secretsmanager_secret.db_master_password.arn}"
-        ]
+        Resource = compact([
+          aws_secretsmanager_secret.db_connection.arn,
+          local.rds_master_secret_arn
+        ])
       }
     ]
   })
@@ -392,20 +425,21 @@ resource "aws_iam_policy" "external_secrets" {
 # Required for EBS volumes provisioning in EKS
 ################################################################################
 
-module "ebs_csi_driver_irsa" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
+module "ebs_csi_driver_pod_identity" {
+  source  = "terraform-aws-modules/eks-pod-identity/aws"
+  version = "~> 1.0"
 
-  role_name = "${local.name}-ebs-csi-driver"
+  name = "${local.name}-ebs-csi-driver"
 
-  role_policy_arns = {
-    policy = aws_iam_policy.ebs_csi_driver.arn
+  additional_policy_arns = {
+    ebs_csi_driver = aws_iam_policy.ebs_csi_driver.arn
   }
 
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks.oidc_provider_arn
-      namespace_service_accounts = ["kube-system:ebs-csi-controller-sa"]
+  associations = {
+    ebs_csi_controller = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "kube-system"
+      service_account = "ebs-csi-controller-sa"
     }
   }
 

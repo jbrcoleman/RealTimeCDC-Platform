@@ -21,20 +21,20 @@ This platform captures database changes in real-time from PostgreSQL and streams
 └──────┬──────┘
        │ Logical Replication
        ↓
-┌──────────────────────────────────────────────┐
-│         EKS Cluster (Kubernetes)             │
-│                                              │
+┌────────────────────────────────────────────┐
+│         EKS Cluster (Kubernetes)           │
+│                                            │
 │  ┌──────────┐    ┌───────────┐             │
 │  │ Debezium │───→│   Kafka   │             │
 │  │  (CDC)   │    │ (Strimzi) │             │
 │  └──────────┘    └─────┬─────┘             │
-│                        │                     │
-│         ┌──────────────┼──────────────┐     │
-│         ↓              ↓              ↓     │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
-│  │   Flink  │  │ Consumer │  │ Consumer │ │
-│  │  Jobs    │  │ Service  │  │ Service  │ │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
+│                        │                   │
+│         ┌──────────────┼──────────────┐    │
+│         ↓              ↓              ↓    │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
+│  │   Flink  │  │ Consumer │  │ Consumer │  │
+│  │  Jobs    │  │ Service  │  │ Service  │  │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  │
 └───────┼─────────────┼─────────────┼────────┘
         ↓             ↓             ↓
    ┌────────┐    ┌─────────┐   ┌──────────┐
@@ -79,7 +79,7 @@ RealTimeCDC-Platform/
 │   ├── eks.tf                     # EKS cluster with Karpenter
 │   ├── rds.tf                     # PostgreSQL with CDC enabled
 │   ├── s3.tf                      # Data lake and storage buckets
-│   ├── iam.tf                     # IRSA roles for Kubernetes
+│   ├── iam.tf                     # Pod Identity roles for Kubernetes
 │   ├── vpc.tf                     # Networking configuration
 │   ├── karpenter.tf               # Node autoscaling
 │   └── outputs.tf                 # Terraform outputs
@@ -88,7 +88,7 @@ RealTimeCDC-Platform/
 │   ├── namespaces/
 │   │   └── namespaces.yaml       # All namespace definitions
 │   ├── service-accounts/
-│   │   └── service-accounts.yaml # IRSA-enabled service accounts
+│   │   └── service-accounts.yaml # Kubernetes service accounts
 │   ├── karpenter/
 │   │   └── karpenter.yaml        # Node pools and classes
 │   ├── kafka/                     # Kafka cluster configs (to be added)
@@ -166,10 +166,10 @@ terraform apply
 
 **What gets created:**
 - ✅ VPC with public/private subnets across 3 AZs
-- ✅ EKS cluster (v1.33) with Karpenter autoscaling
-- ✅ RDS PostgreSQL (v16.3) with logical replication enabled
+- ✅ EKS cluster (v1.33) with Karpenter autoscaling and Pod Identity
+- ✅ RDS PostgreSQL (v16.10) with logical replication enabled
 - ✅ 3 S3 buckets (data lake, DLQ, Kafka Connect storage)
-- ✅ 6 IAM roles with IRSA for pod-level permissions
+- ✅ 7 IAM roles with Pod Identity associations for pod-level permissions
 - ✅ Security groups and networking
 - ✅ CloudWatch log groups
 
@@ -319,9 +319,9 @@ kubectl port-forward svc/argocd-server -n argocd 8080:80
 # Login: admin / <password from setup script>
 ```
 
-## 📊 IAM Roles & Service Accounts (IRSA)
+## 📊 IAM Roles & Service Accounts (EKS Pod Identity)
 
-The platform uses IAM Roles for Service Accounts (IRSA) for secure, pod-level AWS permissions without static credentials.
+The platform uses EKS Pod Identity for secure, pod-level AWS permissions without static credentials. This is the successor to IRSA (IAM Roles for Service Accounts) with improved performance and simplified configuration.
 
 ### Available Roles
 
@@ -336,12 +336,20 @@ The platform uses IAM Roles for Service Accounts (IRSA) for secure, pod-level AW
 | `flink-taskmanager` | flink | S3 read/write, CloudWatch metrics | Flink task manager |
 | `schema-registry` | kafka | S3 read/write (schemas) | Avro schema storage |
 | `external-secrets` | external-secrets | Secrets Manager read | Sync AWS secrets to K8s |
+| `ebs-csi-controller-sa` | kube-system | EC2 volume operations | Persistent volume provisioning |
 
-### How IRSA Works
-1. Terraform creates IAM role with trust policy for specific K8s service account
-2. Service account is annotated with IAM role ARN
-3. EKS Pod Identity webhook injects temporary credentials
-4. Pods automatically get AWS access without static keys
+### How EKS Pod Identity Works
+1. Terraform creates IAM role with trust policy for `pods.eks.amazonaws.com` service principal
+2. Terraform creates Pod Identity association linking the role to specific namespace/service account
+3. EKS Pod Identity agent (running as DaemonSet) injects temporary credentials into pods
+4. Pods automatically get AWS access without static keys or annotations
+5. Credentials are refreshed every 15 minutes (vs 1 hour with IRSA)
+
+### Benefits Over IRSA
+- **Simpler**: No OIDC provider configuration needed
+- **Faster**: Credentials refresh every 15 minutes vs 1 hour
+- **More scalable**: Better performance with large numbers of pods
+- **Cleaner**: No service account annotations required
 
 ## 🗄️ Database Schema
 
@@ -434,9 +442,12 @@ cd terraform
 terraform plan
 terraform apply
 
-# 3. Update K8s service accounts if IAM roles changed
+# 3. Apply K8s service accounts if new namespaces/accounts added
 cd ..
 ./scripts/apply-service-accounts.sh
+
+# Note: Pod Identity associations are managed by Terraform
+# No need to manually update service account annotations
 ```
 
 **Application Changes (Consumer Services):**
@@ -561,7 +572,7 @@ kubectl logs -l app=analytics-service -n cdc-consumers
 ### Implemented
 - ✅ VPC with private subnets for data plane
 - ✅ EKS cluster endpoint restricted (can enable private)
-- ✅ IRSA (no static AWS credentials)
+- ✅ EKS Pod Identity (no static AWS credentials)
 - ✅ Secrets stored in AWS Secrets Manager
 - ✅ RDS encryption at rest
 - ✅ S3 bucket encryption (AES-256)
@@ -580,26 +591,48 @@ kubectl logs -l app=analytics-service -n cdc-consumers
 
 ## 💰 Cost Optimization
 
-### Current Configuration (Dev)
+### Spot Instance Configuration
+
+This platform is **optimized for EC2 Spot Instances**, providing **up to 90% cost savings**:
+
+- ✅ **Dual NodePool Strategy**: High-priority spot-optimized pool + fallback default pool
+- ✅ **Kafka Brokers**: Pre-configured with spot tolerations
+- ✅ **Kafka Connect**: Pre-configured with spot tolerations
+- ✅ **Wide Instance Selection**: c/m/r families (2-16 cores) for maximum spot availability
+- ✅ **Automatic Failover**: Karpenter handles spot interruptions gracefully
+
+See [SPOT_INSTANCES.md](SPOT_INSTANCES.md) for detailed configuration guide.
+
+### Cost Comparison
+
+#### On-Demand (Before)
 - **EKS**: ~$73/month (control plane)
-- **EC2**: ~$60/month (2x m5.large nodes)
+- **EC2**: ~$439/month (Kafka + Connect + Consumers on-demand)
 - **RDS**: ~$25/month (db.t3.micro)
 - **S3**: ~$5/month (with lifecycle policies)
-- **Data Transfer**: Variable
 
-**Estimated Total**: ~$165-200/month
+**Total**: ~$542/month
 
-### Cost Savings
-- Karpenter uses Spot instances where possible
+#### Spot-Optimized (After)
+- **EKS**: ~$73/month (control plane)
+- **EC2**: ~$132/month (70% savings with spot instances)
+- **RDS**: ~$25/month (db.t3.micro)
+- **S3**: ~$5/month (with lifecycle policies)
+
+**Total**: ~$235/month | **Savings**: ~$307/month (~$3,700/year)
+
+### Additional Cost Savings
 - S3 lifecycle policies move data to cheaper tiers
 - RDS Multi-AZ disabled for dev
 - Single NAT gateway in dev
+- Karpenter consolidates underutilized nodes
 
 ### Production Considerations
 - Enable RDS Multi-AZ for high availability
-- Use reserved instances for baseline capacity
+- Use reserved instances for control plane baseline
+- Combine spot + reserved for optimal cost/availability
 - Implement proper data retention policies
-- Monitor and optimize S3 storage classes
+- Monitor spot interruption rates by instance type
 
 ## 🔧 Troubleshooting
 
@@ -635,11 +668,20 @@ argocd app refresh <app-name>
 
 ### Pods Can't Access S3/RDS
 ```bash
-# Verify service account has correct annotation
-kubectl describe sa <service-account> -n <namespace>
+# Verify Pod Identity association exists
+aws eks list-pod-identity-associations --cluster-name cdc-platform --region us-east-1
+
+# Check specific association
+aws eks describe-pod-identity-association \
+  --cluster-name cdc-platform \
+  --association-id <association-id> \
+  --region us-east-1
 
 # Check if pod has AWS credentials injected
 kubectl exec -it <pod-name> -n <namespace> -- env | grep AWS
+
+# Verify Pod Identity agent is running
+kubectl get pods -n kube-system -l app.kubernetes.io/name=eks-pod-identity-agent
 
 # Test AWS access from pod
 kubectl exec -it <pod-name> -n <namespace> -- aws s3 ls
@@ -660,7 +702,42 @@ kubectl scale deployment/<consumer-name> -n cdc-consumers --replicas=3
 
 ## 🧹 Cleanup
 
-### Delete Kubernetes Resources
+### Option 1: Complete Cleanup (Recommended)
+
+Use the cleanup script for a clean teardown:
+
+```bash
+chmod +x scripts/cleanup.sh
+./scripts/cleanup.sh
+```
+
+### Option 2: Manual Cleanup
+
+#### Step 1: Delete Kafka Resources First
+```bash
+# IMPORTANT: Clean up Kafka resources before deleting namespace
+# This prevents orphaned rolebindings that block reinstallation
+
+# Delete Kafka connectors
+kubectl delete kafkaconnector -n kafka --all
+
+# Delete Kafka Connect clusters
+kubectl delete kafkaconnect -n kafka --all
+
+# Delete Kafka clusters
+kubectl delete kafka -n kafka --all
+
+# Wait for Kafka resources to be fully deleted
+kubectl wait --for=delete kafka/cdc-platform -n kafka --timeout=120s
+
+# Uninstall Strimzi operator (removes CRDs and operator)
+helm uninstall strimzi-operator -n kafka
+
+# Delete the namespace (this will clean up remaining resources)
+kubectl delete namespace kafka
+```
+
+#### Step 2: Delete ArgoCD Resources
 ```bash
 # Delete ArgoCD root app (cascades to all apps)
 kubectl delete application cdc-platform-root -n argocd
@@ -669,7 +746,15 @@ kubectl delete application cdc-platform-root -n argocd
 kubectl delete namespace argocd
 ```
 
-### Destroy AWS Infrastructure
+#### Step 3: Delete Other Namespaces
+```bash
+kubectl delete namespace cdc-consumers
+kubectl delete namespace flink
+kubectl delete namespace external-secrets
+kubectl delete namespace monitoring
+```
+
+#### Step 4: Destroy AWS Infrastructure
 ```bash
 cd terraform
 terraform destroy
@@ -680,6 +765,29 @@ terraform destroy
 - RDS database (including data)
 - S3 buckets (will fail if not empty)
 - All IAM roles and policies
+
+### Troubleshooting Cleanup Issues
+
+**If Kafka namespace won't delete:**
+```bash
+# Remove finalizers from stuck resources
+kubectl patch kafka cdc-platform -n kafka -p '{"metadata":{"finalizers":[]}}' --type=merge
+kubectl patch kafkaconnect cdc-platform-connect -n kafka -p '{"metadata":{"finalizers":[]}}' --type=merge
+
+# Force delete namespace
+kubectl delete namespace kafka --grace-period=0 --force
+```
+
+**If S3 bucket deletion fails:**
+```bash
+# Empty S3 buckets first
+aws s3 rm s3://cdc-platform-data-lake-<account-id> --recursive
+aws s3 rm s3://cdc-platform-dlq-<account-id> --recursive
+aws s3 rm s3://cdc-platform-kafka-connect-<account-id> --recursive
+
+# Then retry terraform destroy
+terraform destroy
+```
 
 ## 📚 Additional Resources
 
@@ -693,7 +801,7 @@ terraform destroy
 ### AWS Resources
 - [EKS Best Practices](https://aws.github.io/aws-eks-best-practices/)
 - [RDS for PostgreSQL](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_PostgreSQL.html)
-- [IRSA Documentation](https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html)
+- [EKS Pod Identity Documentation](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html)
 
 ## 🎓 Learning Objectives
 
@@ -705,7 +813,7 @@ This project demonstrates proficiency in:
 - ✅ Real-time data streaming and CDC
 - ✅ Event-driven microservices architecture
 - ✅ AWS services integration
-- ✅ Security best practices (IRSA, encryption, least privilege)
+- ✅ Security best practices (EKS Pod Identity, encryption, least privilege)
 - ✅ Monitoring and observability
 - ✅ Production-ready deployment patterns
 ---
