@@ -30,7 +30,7 @@ spec:
         - name: KAFKA_TOPIC
           value: "dbserver1.public.products"
         - name: DYNAMODB_TABLE
-          value: "product-search-index"
+          value: "cdc-platform-product-search-index"
         - name: AWS_REGION
           value: "us-east-1"
         resources:

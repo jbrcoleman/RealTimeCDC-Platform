@@ -30,7 +30,7 @@ spec:
         - name: KAFKA_TOPICS
           value: "dbserver1.public.products,dbserver1.public.order_items"
         - name: DYNAMODB_TABLE
-          value: "inventory-realtime"
+          value: "cdc-platform-inventory-realtime"
         - name: AWS_REGION
           value: "us-east-1"
         - name: DLQ_S3_BUCKET
