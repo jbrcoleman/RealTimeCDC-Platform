@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-service
+  namespace: cdc-consumers
+  labels:
+    app: inventory-service
+    component: cdc-consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-service
+  template:
+    metadata:
+      labels:
+        app: inventory-service
+        component: cdc-consumer
+    spec:
+      serviceAccountName: inventory-service
+      containers:
+      - name: inventory-service
+        image: inventory-service:latest
+        imagePullPolicy: Always
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "cdc-platform-kafka-bootstrap.kafka.svc.cluster.local:9092"
+        - name: KAFKA_GROUP_ID
+          value: "inventory-service-group"
+        - name: KAFKA_TOPICS
+          value: "dbserver1.public.products,dbserver1.public.order_items"
+        - name: DYNAMODB_TABLE
+          value: "inventory-realtime"
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: DLQ_S3_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: aws-config
+              key: dlq_bucket
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      # Tolerate spot instance interruptions
+      tolerations:
+      - key: "karpenter.sh/disruption"
+        operator: "Exists"
+        effect: "NoSchedule"
+      - key: "kubernetes.azure.com/scalesetpriority"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoSchedule"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-service
+  namespace: cdc-consumers
+  labels:
+    app: inventory-service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: metrics
+  selector:
+    app: inventory-service
