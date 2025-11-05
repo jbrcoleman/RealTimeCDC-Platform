@@ -31,6 +31,7 @@ echo ""
 print_warning "This will delete ALL resources including:"
 echo "  - Kafka clusters and all data"
 echo "  - RDS PostgreSQL database and all data"
+echo "  - DynamoDB tables and all data"
 echo "  - S3 buckets and contents"
 echo "  - EKS cluster and all workloads"
 echo "  - All IAM roles and policies"
@@ -120,9 +121,35 @@ if helm list -n karpenter | grep -q karpenter; then
     print_status "Karpenter uninstalled"
 fi
 
-# Step 5: Empty S3 buckets (required before terraform destroy)
+# Step 5: Delete DynamoDB tables created by applications
 echo ""
-echo "🔨 Step 5: Emptying S3 buckets..."
+echo "🔨 Step 5: Deleting DynamoDB tables..."
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
+AWS_REGION=${AWS_REGION:-us-east-1}
+
+if [ -n "$ACCOUNT_ID" ]; then
+    # List all tables with cdc-platform prefix
+    TABLES=$(aws dynamodb list-tables --region $AWS_REGION --query "TableNames[?starts_with(@, 'cdc-platform-')]" --output text 2>/dev/null)
+
+    if [ -n "$TABLES" ]; then
+        for table in $TABLES; do
+            echo "Deleting DynamoDB table: $table"
+            aws dynamodb delete-table --table-name $table --region $AWS_REGION 2>/dev/null || true
+            print_status "Table $table deleted"
+        done
+
+        # Wait a moment for deletions to propagate
+        sleep 5
+    else
+        print_warning "No DynamoDB tables with cdc-platform prefix found"
+    fi
+else
+    print_error "Could not get AWS Account ID, skipping DynamoDB cleanup"
+fi
+
+# Step 6: Empty S3 buckets (required before terraform destroy)
+echo ""
+echo "🔨 Step 6: Emptying S3 buckets..."
 if command -v terraform &> /dev/null && [ -d "terraform" ]; then
     cd terraform
     ACCOUNT_ID=$(terraform output -raw configure_kubectl 2>/dev/null | grep -oP 'account_id=\K[0-9]+' || aws sts get-caller-identity --query Account --output text)
@@ -139,9 +166,9 @@ if command -v terraform &> /dev/null && [ -d "terraform" ]; then
     cd ..
 fi
 
-# Step 6: Destroy AWS infrastructure with Terraform
+# Step 7: Destroy AWS infrastructure with Terraform
 echo ""
-echo "🔨 Step 6: Destroying AWS infrastructure with Terraform..."
+echo "🔨 Step 7: Destroying AWS infrastructure with Terraform..."
 if [ -d "terraform" ]; then
     cd terraform
 
@@ -183,6 +210,7 @@ echo "📋 What was cleaned up:"
 echo "  ✅ Kafka clusters and Strimzi operator"
 echo "  ✅ ArgoCD and GitOps configurations"
 echo "  ✅ Application namespaces"
+echo "  ✅ DynamoDB tables (application-created)"
 echo "  ✅ S3 bucket contents"
 echo "  ✅ AWS infrastructure (EKS, RDS, VPC, etc.)"
 echo ""

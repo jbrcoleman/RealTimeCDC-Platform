@@ -266,58 +266,50 @@ kubectl exec -n kafka cdc-platform-kafka-brokers-0 -- \
 
 For detailed Debezium deployment steps, see [DEPLOYMENT.md](DEPLOYMENT.MD#58-deploy-debezium-cdc-connector).
 
-### 9. Install ArgoCD (Optional)
+### 9. Deploy with GitOps (ArgoCD)
 
-For GitOps-based deployment:
+**Automated, repeatable deployments with automatic image updates from ECR:**
+
 ```bash
-# Get RDS endpoint
-cd terraform
-terraform output rds_endpoint
-
-# Connect using psql
-kubectl run psql-client --rm -it --restart=Never \
-  --image=postgres:16 --namespace=default \
-  -- psql -h <rds-endpoint> -U dbadmin -d ecommerce
-
-# Run the schema file
-\i scripts/schema.sql
-```
-
-### 7. Install ArgoCD
-```bash
-chmod +x scripts/setup-argocd.sh
+# 1. Install ArgoCD + Image Updater
 ./scripts/setup-argocd.sh
-```
 
-### 8. Update Repository URLs
-Update all files in `argocd/` directory:
-```bash
-# Find files to update
-grep -r "YOUR_ORG" argocd/
+# 2. Configure AWS resources (ConfigMaps, ECR credentials)
+./scripts/setup-aws-config.sh
 
-# Replace YOUR_ORG with your GitHub username/org
-# Files to update:
-# - argocd/bootstrap/root-app.yaml
-# - argocd/projects/cdc-platform.yaml
-# - argocd/apps/*.yaml
-```
+# 3. Set up Git write-back for automatic image updates
+./scripts/setup-image-updater-git.sh
+# Choose option 1 (GitHub Token) and provide your credentials
 
-### 9. Deploy Platform via ArgoCD
-```bash
-# Apply ArgoCD project
-kubectl apply -f argocd/projects/cdc-platform.yaml
+# 4. Deploy all ArgoCD applications (App of Apps pattern)
+./scripts/apply-argocd-apps.sh
 
-# Deploy root application (App of Apps)
-kubectl apply -f argocd/bootstrap/root-app.yaml
-
-# Access ArgoCD UI
+# 5. Access ArgoCD UI
 kubectl port-forward svc/argocd-server -n argocd 8080:80
-
-# GitHub Codespaces: Go to PORTS tab and click on port 8080 to open in browser
-# Local: Open http://localhost:8080
-
-# Login: admin / <password from setup script>
+# Open http://localhost:8080
+# Login: admin / <password from setup-argocd.sh output>
 ```
+
+**What you get:**
+- ✅ GitOps workflow - Git is source of truth
+- ✅ Automatic image updates - Push to ECR → Auto-deploy
+- ✅ No AWS Account ID exposed in Git
+- ✅ Full audit trail via Git commits
+- ✅ Easy rollbacks via Git revert or ArgoCD UI
+
+**Daily workflow after setup:**
+```bash
+# 1. Make code changes and push to ECR
+docker build -t $ECR_REGISTRY/analytics-service:latest .
+docker push $ECR_REGISTRY/analytics-service:latest
+
+# 2. Wait 2-5 minutes - fully automated!
+# - Image Updater detects new image
+# - Updates kustomization.yaml in Git
+# - ArgoCD syncs to cluster
+```
+
+📚 See [GITOPS_DEPLOYMENT.md](./GITOPS_DEPLOYMENT.md) for complete documentation.
 
 ## 📊 IAM Roles & Service Accounts (EKS Pod Identity)
 
@@ -764,7 +756,10 @@ terraform destroy
 - EKS cluster and all workloads
 - RDS database (including data)
 - S3 buckets (will fail if not empty)
+- DynamoDB tables (must be deleted separately if created by applications)
 - All IAM roles and policies
+
+**Note**: DynamoDB tables are created by applications at runtime and are NOT managed by Terraform. Use `./scripts/cleanup.sh` for complete cleanup, or `./scripts/cleanup-dynamodb.sh` to delete only tables.
 
 ### Troubleshooting Cleanup Issues
 
@@ -787,6 +782,16 @@ aws s3 rm s3://cdc-platform-kafka-connect-<account-id> --recursive
 
 # Then retry terraform destroy
 terraform destroy
+```
+
+**To delete only DynamoDB tables (without full cleanup):**
+```bash
+# Use the standalone cleanup script
+./scripts/cleanup-dynamodb.sh
+
+# Or manually delete specific tables
+aws dynamodb delete-table --table-name cdc-platform-inventory-realtime --region us-east-1
+aws dynamodb delete-table --table-name cdc-platform-product-search-index --region us-east-1
 ```
 
 ## 📚 Additional Resources
