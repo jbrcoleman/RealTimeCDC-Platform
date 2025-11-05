@@ -284,7 +284,10 @@ spec:
             - /opt/strimzi/bin/cluster_operator_run.sh
           env:
             - name: STRIMZI_NAMESPACE
-              value: kafka
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
             - name: STRIMZI_FULL_RECONCILIATION_INTERVAL_MS
               value: "120000"
             - name: STRIMZI_OPERATION_TIMEOUT_MS
