@@ -12,7 +12,12 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
-  kms_key_deletion_window_in_days = 7
+  create_kms_key = var.create_eks_kms_key
+  encryption_config = {
+    provider_key_arn = var.create_eks_kms_key ? null : (var.eks_kms_key_arn != null ? var.eks_kms_key_arn : data.aws_kms_key.eks[0].arn)
+    resources        = ["secrets"]
+  }
+  kms_key_deletion_window_in_days = var.kms_key_deletion_window_in_days
 
   addons = {
     vpc-cni = {

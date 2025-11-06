@@ -7,6 +7,14 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "4"  # Deploy after Debezium
+    # ArgoCD Image Updater configuration
+    argocd-image-updater.argoproj.io/image-list: >
+      analytics-service=<<ACCOUNT_ID>>.dkr.ecr.us-east-1.amazonaws.com/analytics-service,
+      inventory-service=<<ACCOUNT_ID>>.dkr.ecr.us-east-1.amazonaws.com/inventory-service,
+      search-indexer=<<ACCOUNT_ID>>.dkr.ecr.us-east-1.amazonaws.com/search-indexer
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git-branch: main
+    argocd-image-updater.argoproj.io/update-strategy: latest
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

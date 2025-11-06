@@ -16,3 +16,9 @@ data "aws_region" "current" {}
 data "aws_ecrpublic_authorization_token" "token" {
   provider = aws.virginia
 }
+
+# Data source to get AWS managed KMS key for EKS
+data "aws_kms_key" "eks" {
+  count  = var.create_eks_kms_key ? 0 : 1
+  key_id = "alias/aws/eks"
+}

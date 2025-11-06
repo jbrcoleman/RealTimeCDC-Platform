@@ -210,7 +210,10 @@ resource "aws_iam_policy" "cdc_consumer" {
           "dynamodb:DeleteItem",
           "dynamodb:Query",
           "dynamodb:Scan",
-          "dynamodb:BatchWriteItem"
+          "dynamodb:BatchWriteItem",
+          "dynamodb:DescribeTable",
+          "dynamodb:CreateTable",
+          "dynamodb:ListTables"
         ]
         Resource = [
           "arn:aws:dynamodb:${var.region}:${data.aws_caller_identity.current.account_id}:table/${local.name}-*"
