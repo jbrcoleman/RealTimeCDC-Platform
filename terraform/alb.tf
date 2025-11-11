@@ -326,3 +326,34 @@ resource "aws_acm_certificate_validation" "argocd" {
   certificate_arn         = aws_acm_certificate.argocd.arn
   validation_record_fqdns = [for record in aws_route53_record.argocd_cert_validation : record.fqdn]
 }
+
+# Data source to get the ALB created by the Ingress controller
+# Note: This relies on the ALB being created by Kubernetes Ingress first
+data "aws_lb" "argocd" {
+  tags = {
+    "elbv2.k8s.aws/cluster"          = "cdc-platform"
+    "ingress.k8s.aws/stack"          = "argocd/argocd-server"
+    "ingress.k8s.aws/resource"       = "LoadBalancer"
+  }
+
+  depends_on = [
+    module.aws_load_balancer_controller_pod_identity
+  ]
+}
+
+# Route53 A record for ArgoCD pointing to the ALB
+resource "aws_route53_record" "argocd" {
+  zone_id = data.aws_route53_zone.democloud.zone_id
+  name    = "argocd.democloud.click"
+  type    = "A"
+
+  alias {
+    name                   = data.aws_lb.argocd.dns_name
+    zone_id                = data.aws_lb.argocd.zone_id
+    evaluate_target_health = true
+  }
+
+  depends_on = [
+    data.aws_lb.argocd
+  ]
+}
