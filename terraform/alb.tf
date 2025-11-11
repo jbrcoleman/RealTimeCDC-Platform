@@ -327,33 +327,31 @@ resource "aws_acm_certificate_validation" "argocd" {
   validation_record_fqdns = [for record in aws_route53_record.argocd_cert_validation : record.fqdn]
 }
 
-# Data source to get the ALB created by the Ingress controller
-# Note: This relies on the ALB being created by Kubernetes Ingress first
-data "aws_lb" "argocd" {
-  tags = {
-    "elbv2.k8s.aws/cluster"          = "cdc-platform"
-    "ingress.k8s.aws/stack"          = "argocd/argocd-server"
-    "ingress.k8s.aws/resource"       = "LoadBalancer"
-  }
-
-  depends_on = [
-    module.aws_load_balancer_controller_pod_identity
-  ]
-}
-
-# Route53 A record for ArgoCD pointing to the ALB
-resource "aws_route53_record" "argocd" {
-  zone_id = data.aws_route53_zone.democloud.zone_id
-  name    = "argocd.democloud.click"
-  type    = "A"
-
-  alias {
-    name                   = data.aws_lb.argocd.dns_name
-    zone_id                = data.aws_lb.argocd.zone_id
-    evaluate_target_health = true
-  }
-
-  depends_on = [
-    data.aws_lb.argocd
-  ]
-}
+# Note: The Route53 DNS record for ArgoCD is NOT managed by Terraform
+# because it depends on the ALB created by the Kubernetes Ingress controller.
+#
+# To create the DNS record after the ALB is provisioned:
+#
+# 1. Get the ALB DNS name:
+#    kubectl get ingress argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+#
+# 2. Create the Route53 record manually or use this command:
+#    ALB_DNS=$(kubectl get ingress argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+#    ALB_ZONE=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?DNSName=='$ALB_DNS'].CanonicalHostedZoneId" --output text)
+#
+#    aws route53 change-resource-record-sets --hosted-zone-id Z09759291BUABQXVLB067 --change-batch '{
+#      "Changes": [{
+#        "Action": "UPSERT",
+#        "ResourceRecordSet": {
+#          "Name": "argocd.democloud.click",
+#          "Type": "A",
+#          "AliasTarget": {
+#            "HostedZoneId": "'$ALB_ZONE'",
+#            "DNSName": "'$ALB_DNS'",
+#            "EvaluateTargetHealth": true
+#          }
+#        }
+#      }]
+#    }'
+#
+# Alternative: Use external-dns in the cluster to automatically manage DNS records
