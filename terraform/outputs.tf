@@ -99,3 +99,18 @@ output "ebs_csi_driver_role_arn" {
   description = "IAM role ARN for EBS CSI Driver service account"
   value       = module.ebs_csi_driver_pod_identity.iam_role_arn
 }
+
+output "aws_load_balancer_controller_role_arn" {
+  description = "IAM role ARN for AWS Load Balancer Controller"
+  value       = module.aws_load_balancer_controller_pod_identity.iam_role_arn
+}
+
+output "argocd_certificate_arn" {
+  description = "ARN of the ACM certificate for argocd.democloud.click"
+  value       = aws_acm_certificate.argocd.arn
+}
+
+output "argocd_domain" {
+  description = "ArgoCD domain name"
+  value       = "argocd.democloud.click"
+}

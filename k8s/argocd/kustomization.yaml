@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: argocd
+
+resources:
+  - argocd-config.yaml
+  - ingress.yaml
+
+# The certificate ARN and IP whitelist will be managed via the ConfigMap
+# Users can edit argocd-config.yaml to update allowed IPs without modifying the ingress directly

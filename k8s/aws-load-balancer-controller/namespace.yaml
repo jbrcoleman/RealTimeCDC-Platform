@@ -1,0 +1,5 @@
+# Note: kube-system namespace already exists, but including for completeness
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system

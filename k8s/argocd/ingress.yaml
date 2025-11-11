@@ -1,0 +1,58 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-server
+    app.kubernetes.io/component: server
+  annotations:
+    # ALB Configuration
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
+    alb.ingress.kubernetes.io/success-codes: '200'
+    alb.ingress.kubernetes.io/healthy-threshold-count: '2'
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: '2'
+
+    # HTTPS Configuration
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+
+    # Certificate ARN from ACM
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:296592524620:certificate/b206b04b-35f8-4d17-b9d5-275774922119
+
+    # IP-based access control
+    # This allows access only from the specified CIDR blocks
+    # Format: comma-separated list of CIDR blocks
+    # Example: 1.2.3.4/32,5.6.7.8/32
+    alb.ingress.kubernetes.io/inbound-cidrs: 4.210.177.129/32
+
+    # ALB attributes
+    alb.ingress.kubernetes.io/load-balancer-attributes: |
+      idle_timeout.timeout_seconds=60,
+      deletion_protection.enabled=false,
+      http2.enabled=true
+
+    # Tags for the ALB
+    alb.ingress.kubernetes.io/tags: |
+      Environment=dev,
+      ManagedBy=ArgoCD,
+      Service=ArgoCD
+spec:
+  ingressClassName: alb
+  rules:
+    - host: argocd.democloud.click
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80

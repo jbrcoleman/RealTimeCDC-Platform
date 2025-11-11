@@ -1,0 +1,39 @@
+# Helm values for AWS Load Balancer Controller
+clusterName: cdc-platform
+
+# Use existing service account created by Terraform/Pod Identity
+serviceAccount:
+  create: false
+  name: aws-load-balancer-controller
+
+# Region
+region: us-east-1
+
+# VPC ID
+vpcId: vpc-03529f356914de651
+
+# Controller configuration
+enableCertManager: false
+enableShield: false
+enableWaf: false
+enableWafv2: false
+
+# Resource limits
+resources:
+  limits:
+    cpu: 200m
+    memory: 500Mi
+  requests:
+    cpu: 100m
+    memory: 200Mi
+
+# Security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+
+# Pod labels
+podLabels:
+  app.kubernetes.io/name: aws-load-balancer-controller
+  app.kubernetes.io/component: controller

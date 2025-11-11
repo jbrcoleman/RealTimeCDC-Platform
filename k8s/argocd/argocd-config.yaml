@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-ingress-config
+  namespace: argocd
+data:
+  # Certificate ARN from Terraform
+  certificate_arn: "arn:aws:acm:us-east-1:296592524620:certificate/b206b04b-35f8-4d17-b9d5-275774922119"
+
+  # IP whitelist - comma-separated CIDR blocks
+  # Update this with your allowed IP addresses
+  # Example: "1.2.3.4/32,5.6.7.8/32"
+  # Use 0.0.0.0/0 to allow all (not recommended for production)
+  ip_whitelist: "4.210.177.129/32"
