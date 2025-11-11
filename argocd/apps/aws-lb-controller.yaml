@@ -11,10 +11,42 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-  source:
-    repoURL: https://github.com/jbrcoleman/RealTimeCDC-Platform
-    targetRevision: main
-    path: k8s/aws-load-balancer-controller
+  sources:
+    - repoURL: https://aws.github.io/eks-charts
+      chart: aws-load-balancer-controller
+      targetRevision: 1.7.1
+      helm:
+        releaseName: aws-load-balancer-controller
+        values: |
+          clusterName: cdc-platform
+          serviceAccount:
+            create: false
+            name: aws-load-balancer-controller
+          region: us-east-1
+          vpcId: vpc-03529f356914de651
+          enableCertManager: false
+          enableShield: false
+          enableWaf: false
+          enableWafv2: false
+          resources:
+            limits:
+              cpu: 200m
+              memory: 500Mi
+            requests:
+              cpu: 100m
+              memory: 200Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          podLabels:
+            app.kubernetes.io/name: aws-load-balancer-controller
+            app.kubernetes.io/component: controller
+    - repoURL: https://github.com/jbrcoleman/RealTimeCDC-Platform
+      targetRevision: main
+      path: k8s/aws-load-balancer-controller
+      directory:
+        include: '{serviceaccount.yaml}'
   destination:
     server: https://kubernetes.default.svc
     namespace: kube-system
