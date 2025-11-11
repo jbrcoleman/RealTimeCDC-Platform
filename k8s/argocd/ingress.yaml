@@ -35,8 +35,7 @@ metadata:
     # ALB attributes
     alb.ingress.kubernetes.io/load-balancer-attributes: |
       idle_timeout.timeout_seconds=60,
-      deletion_protection.enabled=false,
-      http2.enabled=true
+      deletion_protection.enabled=false
 
     # Tags for the ALB
     alb.ingress.kubernetes.io/tags: |
