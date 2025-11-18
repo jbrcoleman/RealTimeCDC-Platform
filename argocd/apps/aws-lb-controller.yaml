@@ -7,6 +7,9 @@ metadata:
     app.kubernetes.io/name: aws-load-balancer-controller
     app.kubernetes.io/component: ingress-controller
     app.kubernetes.io/part-of: cdc-platform
+  annotations:
+    # Deploy in wave 0 - before ingresses that depend on it
+    argocd.argoproj.io/sync-wave: "0"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -23,7 +26,7 @@ spec:
             create: false
             name: aws-load-balancer-controller
           region: us-east-1
-          vpcId: vpc-03529f356914de651
+          vpcId: vpc-0df7c1c9b80d7fa1f
           enableCertManager: false
           enableShield: false
           enableWaf: false

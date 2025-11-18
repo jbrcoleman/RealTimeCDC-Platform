@@ -23,6 +23,7 @@ module "eks" {
     vpc-cni = {
       most_recent = true
       before_compute = true  # Install VPC CNI before node groups
+      resolve_conflicts_on_create = "OVERWRITE"
     }
     kube-proxy = {
       most_recent = true
