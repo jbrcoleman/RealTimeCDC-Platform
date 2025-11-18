@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-config
+  namespace: cdc-consumers
+  labels:
+    app: cdc-consumers
+    component: config
+data:
+  # S3 Data Lake bucket for analytics
+  data_lake_bucket: "cdc-platform-data-lake-296592524620"
+
+  # S3 DLQ bucket for failed messages
+  dlq_bucket: "cdc-platform-dlq-296592524620"
+
+  # AWS Region
+  region: "us-east-1"
