@@ -10,8 +10,11 @@ import logging
 import signal
 import sys
 import re
+import base64
+import struct
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+from decimal import Decimal
 
 import boto3
 from confluent_kafka import Consumer, KafkaError, KafkaException
@@ -95,22 +98,52 @@ def create_search_index_table():
 
 
 def parse_cdc_event(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Parse Debezium CDC event structure"""
+    """
+    Parse Debezium CDC event structure
+    Handles ExtractNewRecordState transformation where data is flattened
+    """
     try:
         payload = message.get('payload', {})
-        operation = payload.get('op')
-        before = payload.get('before')
-        after = payload.get('after')
-        source = payload.get('source', {})
-        table = source.get('table', '')
 
-        return {
-            'operation': operation,
-            'before': before,
-            'after': after,
-            'table': table,
-            'timestamp': payload.get('ts_ms', 0)
-        }
+        # Check if this is an ExtractNewRecordState transformed message
+        # (has __op, __source_table, data directly in payload)
+        if '__op' in payload:
+            operation = payload.get('__op')
+            table = payload.get('__source_table', '')
+            is_deleted = payload.get('__deleted', 'false') == 'true'
+
+            # For delete operations, the data is in the payload (before state)
+            # For create/update, the data is also directly in payload (after state)
+            if is_deleted or operation == 'd':
+                before = {k: v for k, v in payload.items() if not k.startswith('__')}
+                after = None
+            else:
+                before = None
+                after = {k: v for k, v in payload.items() if not k.startswith('__')}
+
+            return {
+                'operation': operation,
+                'before': before,
+                'after': after,
+                'table': table,
+                'timestamp': payload.get('__source_ts_ms', 0)
+            }
+
+        # Standard Debezium format (non-transformed)
+        else:
+            operation = payload.get('op')
+            before = payload.get('before')
+            after = payload.get('after')
+            source = payload.get('source', {})
+            table = source.get('table', '')
+
+            return {
+                'operation': operation,
+                'before': before,
+                'after': after,
+                'table': table,
+                'timestamp': payload.get('ts_ms', 0)
+            }
     except Exception as e:
         logger.error(f"Error parsing CDC event: {e}")
         return None
@@ -129,6 +162,28 @@ def tokenize_text(text: str) -> List[str]:
     return list(set(tokens))  # Remove duplicates
 
 
+def decode_decimal_bytes(encoded_bytes: str, scale: int = 2) -> float:
+    """
+    Decode Debezium-encoded decimal bytes
+    Debezium encodes DECIMAL as base64-encoded bytes
+    """
+    try:
+        if isinstance(encoded_bytes, (int, float)):
+            return float(encoded_bytes)
+
+        # Decode base64
+        decimal_bytes = base64.b64decode(encoded_bytes)
+
+        # Convert bytes to integer (big-endian)
+        value = int.from_bytes(decimal_bytes, byteorder='big', signed=True)
+
+        # Apply scale (divide by 10^scale)
+        return value / (10 ** scale)
+    except Exception as e:
+        logger.warning(f"Could not decode decimal bytes '{encoded_bytes}': {e}")
+        return 0.0
+
+
 def build_search_index(product: Dict[str, Any]) -> Dict[str, Any]:
     """
     Build a searchable index document for a product
@@ -137,7 +192,10 @@ def build_search_index(product: Dict[str, Any]) -> Dict[str, Any]:
     product_id = product['id']
     name = product.get('name', '')
     description = product.get('description', '')
-    price = float(product.get('price', 0))
+
+    # Handle Debezium-encoded decimal
+    price_raw = product.get('price', 0)
+    price = decode_decimal_bytes(price_raw) if isinstance(price_raw, str) else float(price_raw)
 
     # Tokenize name and description for search
     name_tokens = tokenize_text(name)

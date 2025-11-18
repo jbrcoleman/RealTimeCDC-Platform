@@ -9,6 +9,7 @@ import json
 import logging
 import signal
 import sys
+import base64
 from typing import Dict, Any, Optional
 from datetime import datetime
 
@@ -75,34 +76,96 @@ def create_dynamodb_table_if_not_exists():
 def parse_cdc_event(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Parse Debezium CDC event structure
+    Handles both standard and ExtractNewRecordState transformed messages
 
-    Debezium CDC event structure:
+    ExtractNewRecordState format (flattened):
     {
-        "before": {...},  # State before change (null for INSERT)
-        "after": {...},   # State after change (null for DELETE)
-        "op": "c|u|d|r",  # Operation: create, update, delete, read
-        "ts_ms": 1234567, # Timestamp
-        "source": {...}   # Metadata
+        "payload": {
+            "id": 1,
+            "name": "Product",
+            "__op": "c",
+            "__source_table": "products",
+            "__deleted": "false"
+        }
+    }
+
+    Standard Debezium format:
+    {
+        "payload": {
+            "before": {...},
+            "after": {...},
+            "op": "c|u|d|r",
+            "source": {...}
+        }
     }
     """
     try:
         payload = message.get('payload', {})
-        operation = payload.get('op')
-        before = payload.get('before')
-        after = payload.get('after')
-        source = payload.get('source', {})
-        table = source.get('table', '')
 
-        return {
-            'operation': operation,
-            'before': before,
-            'after': after,
-            'table': table,
-            'timestamp': payload.get('ts_ms', 0)
-        }
+        # Check if this is an ExtractNewRecordState transformed message
+        # (has __op, __source_table, data directly in payload)
+        if '__op' in payload:
+            operation = payload.get('__op')
+            table = payload.get('__source_table', '')
+            is_deleted = payload.get('__deleted', 'false') == 'true'
+
+            # For delete operations, the data is in the payload (before state)
+            # For create/update, the data is also directly in payload (after state)
+            if is_deleted or operation == 'd':
+                before = {k: v for k, v in payload.items() if not k.startswith('__')}
+                after = None
+            else:
+                before = None
+                after = {k: v for k, v in payload.items() if not k.startswith('__')}
+
+            return {
+                'operation': operation,
+                'before': before,
+                'after': after,
+                'table': table,
+                'timestamp': payload.get('__source_ts_ms', 0)
+            }
+
+        # Standard Debezium format (non-transformed)
+        else:
+            operation = payload.get('op')
+            before = payload.get('before')
+            after = payload.get('after')
+            source = payload.get('source', {})
+            table = source.get('table', '')
+
+            return {
+                'operation': operation,
+                'before': before,
+                'after': after,
+                'table': table,
+                'timestamp': payload.get('ts_ms', 0)
+            }
     except Exception as e:
         logger.error(f"Error parsing CDC event: {e}")
         return None
+
+
+def decode_decimal_bytes(encoded_bytes: str, scale: int = 2) -> float:
+    """
+    Decode Debezium-encoded decimal bytes
+    Debezium encodes DECIMAL as base64-encoded bytes
+    """
+    try:
+        if isinstance(encoded_bytes, (int, float)):
+            return float(encoded_bytes)
+
+        # Decode base64
+        decimal_bytes = base64.b64decode(encoded_bytes)
+
+        # Convert bytes to integer (big-endian)
+        value = int.from_bytes(decimal_bytes, byteorder='big', signed=True)
+
+        # Apply scale (divide by 10^scale)
+        return value / (10 ** scale)
+    except Exception as e:
+        logger.warning(f"Could not decode decimal bytes '{encoded_bytes}': {e}")
+        return 0.0
 
 
 def process_product_event(event: Dict[str, Any]) -> bool:
@@ -120,11 +183,16 @@ def process_product_event(event: Dict[str, Any]) -> bool:
         if operation in ['c', 'r', 'u']:  # Create, Read (snapshot), Update
             if after:
                 product_id = after['id']
+
+                # Handle Debezium-encoded decimal
+                price_raw = after.get('price', 0)
+                price = decode_decimal_bytes(price_raw) if isinstance(price_raw, str) else float(price_raw)
+
                 item = {
                     'product_id': product_id,
                     'name': after['name'],
                     'description': after.get('description', ''),
-                    'price': str(after['price']),  # Store as string to avoid Decimal issues
+                    'price': f"{price:.2f}",  # Store as formatted string
                     'stock_quantity': after['stock_quantity'],
                     'last_updated': datetime.utcnow().isoformat(),
                     'cdc_timestamp': event['timestamp']

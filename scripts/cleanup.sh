@@ -158,8 +158,21 @@ if command -v terraform &> /dev/null && [ -d "terraform" ]; then
         for bucket in "cdc-platform-data-lake-${ACCOUNT_ID}" "cdc-platform-dlq-${ACCOUNT_ID}" "cdc-platform-kafka-connect-${ACCOUNT_ID}"; do
             if aws s3 ls "s3://${bucket}" &> /dev/null; then
                 echo "Emptying bucket: $bucket"
+
+                # Delete all objects
                 aws s3 rm "s3://${bucket}" --recursive || true
-                print_status "Bucket $bucket emptied"
+
+                # Delete all versions if versioning is enabled
+                aws s3api delete-objects --bucket "${bucket}" \
+                    --delete "$(aws s3api list-object-versions --bucket "${bucket}" \
+                    --query='{Objects: Versions[].{Key:Key,VersionId:VersionId}}' --output json)" 2>/dev/null || true
+
+                # Delete all delete markers
+                aws s3api delete-objects --bucket "${bucket}" \
+                    --delete "$(aws s3api list-object-versions --bucket "${bucket}" \
+                    --query='{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' --output json)" 2>/dev/null || true
+
+                print_status "Bucket $bucket emptied (including versions)"
             fi
         done
     fi

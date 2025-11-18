@@ -55,22 +55,52 @@ def signal_handler(signum, frame):
 
 
 def parse_cdc_event(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Parse Debezium CDC event structure"""
+    """
+    Parse Debezium CDC event structure
+    Handles ExtractNewRecordState transformation where data is flattened
+    """
     try:
         payload = message.get('payload', {})
-        operation = payload.get('op')
-        before = payload.get('before')
-        after = payload.get('after')
-        source = payload.get('source', {})
-        table = source.get('table', '')
 
-        return {
-            'operation': operation,
-            'before': before,
-            'after': after,
-            'table': table,
-            'timestamp': payload.get('ts_ms', 0)
-        }
+        # Check if this is an ExtractNewRecordState transformed message
+        # (has __op, __source_table, data directly in payload)
+        if '__op' in payload:
+            operation = payload.get('__op')
+            table = payload.get('__source_table', '')
+            is_deleted = payload.get('__deleted', 'false') == 'true'
+
+            # For delete operations, the data is in the payload (before state)
+            # For create/update, the data is also directly in payload (after state)
+            if is_deleted or operation == 'd':
+                before = {k: v for k, v in payload.items() if not k.startswith('__')}
+                after = None
+            else:
+                before = None
+                after = {k: v for k, v in payload.items() if not k.startswith('__')}
+
+            return {
+                'operation': operation,
+                'before': before,
+                'after': after,
+                'table': table,
+                'timestamp': payload.get('__source_ts_ms', 0)
+            }
+
+        # Standard Debezium format (non-transformed)
+        else:
+            operation = payload.get('op')
+            before = payload.get('before')
+            after = payload.get('after')
+            source = payload.get('source', {})
+            table = source.get('table', '')
+
+            return {
+                'operation': operation,
+                'before': before,
+                'after': after,
+                'table': table,
+                'timestamp': payload.get('ts_ms', 0)
+            }
     except Exception as e:
         logger.error(f"Error parsing CDC event: {e}")
         return None
