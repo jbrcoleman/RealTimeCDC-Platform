@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: flink
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - flink-configuration.yaml
+  - flink-cluster.yaml
+  # Jobs are submitted manually or via ArgoCD sync waves
+  # - job-sales-aggregations.yaml
+  # - job-customer-segmentation.yaml
+  # - job-anomaly-detection.yaml
+  # - job-inventory-optimizer.yaml
+
+# These will be replaced with actual values during deployment
+# Either via kustomize patches or ConfigMap
+configMapGenerator:
+  - name: aws-config
+    namespace: flink
+    literals:
+      - AWS_ACCOUNT_ID=296592524620
+      - AWS_REGION=us-east-1
+      - S3_CHECKPOINT_BUCKET=cdc-platform-flink-checkpoints
+
+# Patches to inject AWS account ID
+# patches:
+#   - path: patches/inject-account-id.yaml

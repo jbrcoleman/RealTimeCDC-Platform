@@ -116,9 +116,38 @@ done
 # Step 4: Clean up Karpenter resources
 echo ""
 echo "🔨 Step 4: Cleaning up Karpenter..."
+
+# CRITICAL: Delete NodePools/NodeClasses BEFORE uninstalling Karpenter
+# This triggers Karpenter to gracefully terminate EC2 instances
+if kubectl get namespace karpenter &> /dev/null; then
+    echo "Deleting Karpenter NodePools (this will terminate EC2 instances)..."
+    kubectl delete nodepools --all -A --timeout=120s 2>/dev/null || true
+
+    echo "Deleting Karpenter NodeClasses..."
+    kubectl delete nodeclasses --all -A --timeout=60s 2>/dev/null || true
+
+    echo "Deleting EC2NodeClasses (legacy)..."
+    kubectl delete ec2nodeclasses --all -A --timeout=60s 2>/dev/null || true
+
+    # Wait for nodes to be drained and terminated
+    echo "Waiting for Karpenter nodes to terminate..."
+    sleep 30
+
+    print_status "Karpenter NodePools deleted, EC2 instances terminating"
+fi
+
+# Now uninstall Karpenter Helm chart
 if helm list -n karpenter | grep -q karpenter; then
+    echo "Uninstalling Karpenter Helm chart..."
     helm uninstall karpenter -n karpenter || true
     print_status "Karpenter uninstalled"
+fi
+
+# Delete Karpenter namespace
+if kubectl get namespace karpenter &> /dev/null; then
+    echo "Deleting Karpenter namespace..."
+    kubectl delete namespace karpenter --timeout=60s || kubectl delete namespace karpenter --grace-period=0 --force 2>/dev/null || true
+    print_status "Karpenter namespace deleted"
 fi
 
 # Step 5: Delete DynamoDB tables created by applications
@@ -213,6 +242,24 @@ echo "Remaining namespaces:"
 kubectl get namespaces | grep -E "(kafka|cdc|argocd|flink|external|monitoring)" || echo "  None found"
 echo ""
 
+# Check for remaining Karpenter-created EC2 instances
+echo "Checking for remaining Karpenter EC2 instances..."
+REMAINING_INSTANCES=$(aws ec2 describe-instances \
+    --filters "Name=tag:karpenter.sh/nodepool,Values=*" "Name=instance-state-name,Values=running,pending" \
+    --query "Reservations[].Instances[].InstanceId" \
+    --output text 2>/dev/null)
+
+if [ -n "$REMAINING_INSTANCES" ]; then
+    print_warning "Found remaining Karpenter-managed EC2 instances:"
+    echo "$REMAINING_INSTANCES"
+    echo ""
+    echo "To manually terminate them, run:"
+    echo "  aws ec2 terminate-instances --instance-ids $REMAINING_INSTANCES"
+    echo ""
+else
+    print_status "No remaining Karpenter EC2 instances found"
+fi
+
 # Summary
 echo ""
 echo "=========================================="
@@ -223,6 +270,7 @@ echo "📋 What was cleaned up:"
 echo "  ✅ Kafka clusters and Strimzi operator"
 echo "  ✅ ArgoCD and GitOps configurations"
 echo "  ✅ Application namespaces"
+echo "  ✅ Karpenter NodePools and EC2 instances"
 echo "  ✅ DynamoDB tables (application-created)"
 echo "  ✅ S3 bucket contents"
 echo "  ✅ AWS infrastructure (EKS, RDS, VPC, etc.)"

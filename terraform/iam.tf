@@ -16,8 +16,8 @@ module "kafka_connect_pod_identity" {
   associations = {
     kafka_connect = {
       cluster_name    = module.eks.cluster_name
-      namespace       = "kafka"
-      service_account = "kafka-connect"
+      namespace       = kubernetes_namespace.kafka.metadata[0].name
+      service_account = kubernetes_service_account.kafka_connect.metadata[0].name
     }
   }
 
@@ -106,8 +106,8 @@ module "debezium_pod_identity" {
   associations = {
     debezium = {
       cluster_name    = module.eks.cluster_name
-      namespace       = "kafka"
-      service_account = "debezium"
+      namespace       = kubernetes_namespace.kafka.metadata[0].name
+      service_account = kubernetes_service_account.debezium.metadata[0].name
     }
   }
 
@@ -156,18 +156,18 @@ module "cdc_consumer_pod_identity" {
   associations = {
     inventory_service = {
       cluster_name    = module.eks.cluster_name
-      namespace       = "cdc-consumers"
-      service_account = "inventory-service"
+      namespace       = kubernetes_namespace.cdc_consumers.metadata[0].name
+      service_account = kubernetes_service_account.inventory_service.metadata[0].name
     }
     analytics_service = {
       cluster_name    = module.eks.cluster_name
-      namespace       = "cdc-consumers"
-      service_account = "analytics-service"
+      namespace       = kubernetes_namespace.cdc_consumers.metadata[0].name
+      service_account = kubernetes_service_account.analytics_service.metadata[0].name
     }
     search_indexer = {
       cluster_name    = module.eks.cluster_name
-      namespace       = "cdc-consumers"
-      service_account = "search-indexer"
+      namespace       = kubernetes_namespace.cdc_consumers.metadata[0].name
+      service_account = kubernetes_service_account.search_indexer.metadata[0].name
     }
   }
 
@@ -252,13 +252,13 @@ module "flink_pod_identity" {
   associations = {
     jobmanager = {
       cluster_name    = module.eks.cluster_name
-      namespace       = "flink"
-      service_account = "flink-jobmanager"
+      namespace       = kubernetes_namespace.flink.metadata[0].name
+      service_account = kubernetes_service_account.flink_jobmanager.metadata[0].name
     }
     taskmanager = {
       cluster_name    = module.eks.cluster_name
-      namespace       = "flink"
-      service_account = "flink-taskmanager"
+      namespace       = kubernetes_namespace.flink.metadata[0].name
+      service_account = kubernetes_service_account.flink_taskmanager.metadata[0].name
     }
   }
 
@@ -330,8 +330,8 @@ module "schema_registry_pod_identity" {
   associations = {
     schema_registry = {
       cluster_name    = module.eks.cluster_name
-      namespace       = "kafka"
-      service_account = "schema-registry"
+      namespace       = kubernetes_namespace.kafka.metadata[0].name
+      service_account = kubernetes_service_account.schema_registry.metadata[0].name
     }
   }
 
@@ -390,8 +390,8 @@ module "external_secrets_pod_identity" {
   associations = {
     external_secrets = {
       cluster_name    = module.eks.cluster_name
-      namespace       = "external-secrets"
-      service_account = "external-secrets"
+      namespace       = kubernetes_namespace.external_secrets.metadata[0].name
+      service_account = kubernetes_service_account.external_secrets.metadata[0].name
     }
   }
 

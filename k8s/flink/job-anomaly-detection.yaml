@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flink-anomaly-detection
+  namespace: flink
+spec:
+  template:
+    metadata:
+      labels:
+        app: flink
+        job: anomaly-detection
+    spec:
+      serviceAccountName: flink-jobmanager
+      restartPolicy: OnFailure
+      containers:
+        - name: flink-job
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/flink-anomaly-detection:latest
+          command:
+            - /opt/flink/bin/flink
+            - run
+            - --jobmanager
+            - flink-jobmanager:8081
+            - --python
+            - /opt/flink/usrlib/job/job.py
+          env:
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"
+            - name: TABLE_PREFIX
+              value: "cdc-platform"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
