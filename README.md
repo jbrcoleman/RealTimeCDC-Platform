@@ -1,8 +1,6 @@
 # RealTimeCDC-Platform
-Real time change data capture platform
-# RealTimeCDC-Platform
 
-A production-ready, real-time Change Data Capture (CDC) platform built on AWS EKS, demonstrating modern data streaming architecture with Kafka, Debezium, and GitOps practices.
+A production-ready, real-time Change Data Capture (CDC) platform built on AWS EKS, demonstrating modern data streaming architecture with Kafka, Debezium, Flink, and GitOps practices.
 
 ## 🎯 Project Overview
 
@@ -46,12 +44,13 @@ This platform captures database changes in real-time from PostgreSQL and streams
 ## 🚀 Technologies Used
 
 ### Infrastructure
-- **AWS EKS**: Kubernetes orchestration with Karpenter autoscaling
+- **AWS EKS (Kubernetes 1.33)**: Container orchestration with Karpenter autoscaling
 - **Terraform**: Infrastructure as Code for AWS resources
 - **ArgoCD**: GitOps continuous delivery for Kubernetes
+- **Karpenter**: Intelligent node autoscaling with spot instances
 
 ### Data Streaming
-- **Apache Kafka (Strimzi)**: Distributed event streaming platform
+- **Apache Kafka 4.1.0 (Strimzi 0.48.0)**: Distributed event streaming (KRaft mode)
 - **Debezium**: Change data capture connector for PostgreSQL
 - **Apache Flink**: Stream processing framework
 - **Schema Registry**: Avro schema management
@@ -66,763 +65,327 @@ This platform captures database changes in real-time from PostgreSQL and streams
 - **FastAPI**: RESTful APIs for consumers
 - **Boto3**: AWS SDK for Python
 
-### Observability
-- **Prometheus**: Metrics collection
-- **Grafana**: Dashboards and visualization
-- **CloudWatch**: AWS native monitoring
-
 ## 📁 Repository Structure
 
 ```
 RealTimeCDC-Platform/
-├── terraform/                      # Infrastructure as Code
-│   ├── eks.tf                     # EKS cluster with Karpenter
-│   ├── rds.tf                     # PostgreSQL with CDC enabled
-│   ├── s3.tf                      # Data lake and storage buckets
-│   ├── iam.tf                     # Pod Identity roles for Kubernetes
-│   ├── vpc.tf                     # Networking configuration
-│   ├── karpenter.tf               # Node autoscaling
-│   └── outputs.tf                 # Terraform outputs
+├── terraform-infra/              # Infrastructure Layer (Terraform)
+│   ├── eks.tf                    # EKS cluster configuration
+│   ├── rds.tf                    # PostgreSQL with CDC enabled
+│   ├── s3.tf                     # S3 buckets (data lake, DLQ)
+│   ├── iam.tf                    # IAM roles and policies
+│   └── vpc.tf                    # Network configuration
 │
-├── k8s/                           # Kubernetes manifests
-│   ├── namespaces/
-│   │   └── namespaces.yaml       # All namespace definitions
-│   ├── service-accounts/
-│   │   └── service-accounts.yaml # Kubernetes service accounts
-│   ├── karpenter/
-│   │   └── karpenter.yaml        # Node pools and classes
-│   ├── kafka/                     # Kafka cluster configs (to be added)
-│   ├── debezium/                  # CDC connector configs (to be added)
-│   ├── flink/                     # Stream processing jobs (to be added)
-│   └── consumers/                 # Consumer microservices (to be added)
+├── terraform-apps/               # Application Layer (Terraform)
+│   ├── argocd.tf                 # ArgoCD installation
+│   ├── alb-controller.tf         # AWS Load Balancer Controller
+│   ├── karpenter-nodepools.tf    # Karpenter node pools
+│   ├── pod-identities.tf         # Pod Identity associations
+│   ├── route53.tf                # DNS records for ingress
+│   └── strimzi.tf                # Strimzi operator (managed via script)
 │
-├── argocd/                        # GitOps configuration
+├── argocd/                       # GitOps Configuration
 │   ├── bootstrap/
 │   │   └── root-app.yaml         # App of Apps pattern
-│   ├── projects/
-│   │   └── cdc-platform.yaml     # ArgoCD project with RBAC
-│   └── apps/
-│       ├── kafka.yaml            # Kafka application
-│       ├── debezium.yaml         # Debezium application
-│       ├── consumers.yaml        # Consumer applications
-│       ├── flink.yaml            # Flink applications
-│       └── monitoring.yaml       # Observability stack
+│   ├── applications/             # Application definitions
+│   │   ├── consumers.yaml        # Consumer microservices
+│   │   ├── flink-jobs.yaml       # Flink stream processing
+│   │   ├── ingress.yaml          # Ingress resources
+│   │   └── kafka-cluster.yaml    # Kafka cluster
+│   └── app-manifests/            # Kubernetes manifests
+│       ├── consumers/            # Consumer deployments
+│       ├── flink/                # Flink job/task managers
+│       ├── ingress/              # ALB ingress configs
+│       └── kafka/                # Kafka cluster configs
 │
-├── apps/                          # Application source code (to be added)
-│   └── python/
-│       ├── inventory-service/    # Real-time inventory tracker
-│       ├── analytics-service/    # Analytics aggregations
-│       └── search-indexer/       # Search index updater
+├── apps/                         # Application Code
+│   ├── consumers/                # Python consumer services
+│   │   ├── analytics-service/
+│   │   ├── inventory-service/
+│   │   └── search-indexer/
+│   └── flink/                    # Flink jobs (Java/Scala)
+│       ├── sales-aggregations/
+│       ├── anomaly-detection/
+│       ├── customer-segmentation/
+│       └── inventory-optimizer/
 │
-├── scripts/                       # Automation scripts
-│   ├── schema.sql                # Database schema definition
-│   ├── init-database.sh          # Initialize RDS with schema
-│   ├── install-kafka.sh          # Install Kafka cluster via Helm
-│   ├── apply-service-accounts.sh # Deploy K8s service accounts
-│   └── setup-argocd.sh           # Install and configure ArgoCD
+├── scripts/                      # Operational Scripts
+│   ├── install-kafka.sh          # Install Kafka operator + cluster
+│   ├── install-debezium.sh       # Deploy Debezium connectors
+│   ├── init-database.sh          # Initialize source database
+│   ├── build-flink-jobs.sh       # Build and push Flink jobs
+│   ├── submit-flink-job.sh       # Submit Flink job to cluster
+│   ├── cleanup-all.sh            # Comprehensive cleanup
+│   ├── cleanup-dynamodb.sh       # Clean DynamoDB tables
+│   └── teardown.sh               # Full teardown
 │
-├── DEPLOYMENT.md                  # Detailed deployment guide
-└── README.md                      # This file
+└── docs/                         # Additional Documentation
+    └── *.md                      # Detailed guides
 ```
 
-## 🛠️ Prerequisites
+## 🏗️ Deployment Architecture
 
-### Required Tools
-- **AWS CLI** (v2.x): AWS authentication and resource management
-- **Terraform** (>= 1.10): Infrastructure provisioning (required for write-only attributes)
-- **kubectl** (>= 1.28): Kubernetes CLI
-- **Helm** (>= 3.12): Kubernetes package manager
-- **ArgoCD CLI** (optional): GitOps management
-- **Docker**: Container image builds
-- **Git**: Version control
+This platform uses a **hybrid approach** combining the best of Terraform, GitOps, and scripts:
 
-### AWS Requirements
-- AWS account with appropriate IAM permissions
-- Configured AWS credentials (`aws configure`)
-- Available VPC and subnet capacity
-- Service quota for EKS clusters
+### Infrastructure Layer (Terraform)
+- **terraform-infra/**: Core AWS infrastructure (EKS, RDS, S3, VPC, IAM)
+- Stable, rarely changes
+- Deployed once during initial setup
 
-### Knowledge Prerequisites
-- Kubernetes fundamentals
-- Basic understanding of CDC concepts
-- Terraform syntax
-- GitOps principles
+### Application Layer (Terraform + GitOps)
+- **terraform-apps/**: Kubernetes operators and controllers (ArgoCD, ALB Controller, Karpenter)
+- **argocd/**: Application deployments via GitOps (consumers, Flink jobs, ingress)
+- Auto-synced, drift detection enabled
 
-## 🚦 Quick Start
+### Kafka Infrastructure (Script-based)
+- **scripts/install-kafka.sh**: Deploys Strimzi operator and Kafka cluster
+- Helm-based for flexibility and compatibility
+- Kafka resources (topics, users) managed by ArgoCD
 
-### 1. Clone Repository
+## 🚀 Quick Start
+
+### Prerequisites
+
+1. **AWS Account** with appropriate permissions
+2. **AWS CLI** configured with credentials
+3. **Terraform** >= 1.5.0
+4. **kubectl** >= 1.27
+5. **Helm** >= 3.12
+6. **Git** for version control
+
+### Step 1: Deploy Infrastructure
+
 ```bash
-git clone https://github.com/YOUR_ORG/RealTimeCDC-Platform.git
+# Clone the repository
+git clone https://github.com/your-org/RealTimeCDC-Platform.git
 cd RealTimeCDC-Platform
-```
 
-### 2. Deploy Infrastructure
-```bash
-cd terraform
+# Deploy core infrastructure (EKS, RDS, S3, VPC)
+cd terraform-infra
 terraform init
 terraform plan
 terraform apply
+
+# Save outputs for later use
+terraform output > ../infrastructure-outputs.txt
+cd ..
 ```
 
-**What gets created:**
-- ✅ VPC with public/private subnets across 3 AZs
-- ✅ EKS cluster (v1.33) with Karpenter autoscaling and Pod Identity
-- ✅ RDS PostgreSQL (v16.10) with logical replication enabled
-- ✅ 3 S3 buckets (data lake, DLQ, Kafka Connect storage)
-- ✅ 7 IAM roles with Pod Identity associations for pod-level permissions
-- ✅ Security groups and networking
-- ✅ CloudWatch log groups
-
-### 3. Configure kubectl
-```bash
-# Get kubeconfig command from Terraform output
-terraform output configure_kubectl
-
-# Run it (example output):
-aws eks --region us-east-1 update-kubeconfig --name cdc-platform
-
-# Verify access
-kubectl get nodes
-```
-
-### 4. Deploy Karpenter NodePool
-```bash
-cd ..  # Back to project root
-
-# Apply Karpenter NodePool configuration to enable worker node provisioning
-kubectl apply -f k8s/karpenter/karpenter.yaml
-
-# Wait for Karpenter to provision worker nodes (1-2 minutes)
-kubectl get nodes -w
-```
-
-**Important**: Terraform deploys Karpenter itself, but doesn't apply the NodePool configuration. Without this step, only controller nodes exist (with taints), preventing regular workloads from scheduling.
-
-### 5. Deploy Service Accounts
-```bash
-chmod +x scripts/apply-service-accounts.sh
-./scripts/apply-service-accounts.sh
-```
-
-### 6. Initialize Database Schema
-```bash
-chmod +x scripts/init-database.sh
-./scripts/init-database.sh
-```
-
-**What gets created:**
-- ✅ E-commerce tables: `products`, `orders`, `order_items`
-- ✅ Sample data: 5 products, 3 orders, 4 order items
-- ✅ CDC enabled: All tables configured with `REPLICA IDENTITY FULL`
-- ✅ Indexes for query performance
-- ✅ Foreign key relationships
-
-### 7. Install Kafka & Kafka Connect
-```bash
-chmod +x scripts/install-kafka.sh
-./scripts/install-kafka.sh
-```
-
-**What gets created:**
-- ✅ Strimzi Kafka Operator (v0.48.0)
-- ✅ Kafka cluster (v4.1.0) in KRaft mode - 2 brokers
-- ✅ Kafka Connect with custom Debezium image
-- ✅ CDC topics for products, orders, order_items
-
-### 8. Deploy Debezium CDC Connector
-
-Build custom Kafka Connect image with Debezium:
-```bash
-# Create ECR repository
-aws ecr create-repository --repository-name kafka-connect-debezium --region us-east-1
-
-# Build and push custom image (see DEPLOYMENT.md for full commands)
-# Image includes Debezium PostgreSQL connector v2.7.0
-
-# Update Kafka Connect to use custom image
-kubectl patch kafkaconnect cdc-platform-connect -n kafka --type merge \
-  -p '{"spec":{"image":"<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/kafka-connect-debezium:2.7.0"}}'
-
-# Create database credentials secret
-PASSWORD=$(aws secretsmanager get-secret-value --secret-id cdc-platform-db-master-password \
-  --query SecretString --output text | tr -d '\n')
-echo -n "$PASSWORD" > /tmp/db_password.txt
-kubectl create secret generic db-credentials --from-file=password=/tmp/db_password.txt -n kafka
-
-# Deploy Debezium connector
-kubectl apply -f k8s/debezium/postgres-connector.yaml
-
-# Verify CDC is working
-kubectl get kafkaconnector -n kafka
-kubectl exec -n kafka cdc-platform-kafka-brokers-0 -- \
-  bin/kafka-topics.sh --bootstrap-server localhost:9092 --list | grep dbserver1
-```
-
-**What gets created:**
-- ✅ Custom Kafka Connect image with Debezium in ECR
-- ✅ Debezium PostgreSQL connector configured
-- ✅ CDC topics capturing real-time database changes
-- ✅ Replication slot and publication in PostgreSQL
-
-For detailed Debezium deployment steps, see [DEPLOYMENT.md](DEPLOYMENT.MD#58-deploy-debezium-cdc-connector).
-
-### 9. Deploy with GitOps (ArgoCD)
-
-**Automated, repeatable deployments with automatic image updates from ECR:**
+### Step 2: Deploy Application Layer
 
 ```bash
-# 1. Install ArgoCD + Image Updater
-./scripts/setup-argocd.sh
+# Deploy Kubernetes applications layer (ArgoCD, ALB Controller, Karpenter)
+cd terraform-apps
 
-# 2. Configure AWS resources (ConfigMaps, ECR credentials)
-./scripts/setup-aws-config.sh
+# Update terraform.tfvars with your values
+cat > terraform.tfvars <<EOF
+environment     = "dev"
+git_repo_url    = "https://github.com/YOUR-ORG/RealTimeCDC-Platform"
+git_revision    = "main"
+domain_name     = "your-domain.com"
+certificate_arn = "arn:aws:acm:region:account:certificate/xxx"
+EOF
 
-# 3. Set up Git write-back for automatic image updates
-./scripts/setup-image-updater-git.sh
-# Choose option 1 (GitHub Token) and provide your credentials
-
-# 4. Deploy all ArgoCD applications (App of Apps pattern)
-./scripts/apply-argocd-apps.sh
-
-# 5. Access ArgoCD UI
-kubectl port-forward svc/argocd-server -n argocd 8080:80
-# Open http://localhost:8080
-# Login: admin / <password from setup-argocd.sh output>
-```
-
-**What you get:**
-- ✅ GitOps workflow - Git is source of truth
-- ✅ Automatic image updates - Push to ECR → Auto-deploy
-- ✅ No AWS Account ID exposed in Git
-- ✅ Full audit trail via Git commits
-- ✅ Easy rollbacks via Git revert or ArgoCD UI
-
-**Daily workflow after setup:**
-```bash
-# 1. Make code changes and push to ECR
-docker build -t $ECR_REGISTRY/analytics-service:latest .
-docker push $ECR_REGISTRY/analytics-service:latest
-
-# 2. Wait 2-5 minutes - fully automated!
-# - Image Updater detects new image
-# - Updates kustomization.yaml in Git
-# - ArgoCD syncs to cluster
-```
-
-📚 See [GITOPS_DEPLOYMENT.md](./GITOPS_DEPLOYMENT.md) for complete documentation.
-
-## 📊 IAM Roles & Service Accounts (EKS Pod Identity)
-
-The platform uses EKS Pod Identity for secure, pod-level AWS permissions without static credentials. This is the successor to IRSA (IAM Roles for Service Accounts) with improved performance and simplified configuration.
-
-### Available Roles
-
-| Service Account | Namespace | AWS Permissions | Use Case |
-|----------------|-----------|-----------------|----------|
-| `kafka-connect` | kafka | S3 read/write, Secrets Manager read | Kafka Connect S3 sink connector |
-| `debezium` | kafka | Secrets Manager read | Read RDS credentials |
-| `inventory-service` | cdc-consumers | S3 read, DynamoDB write, Secrets read | Inventory consumer |
-| `analytics-service` | cdc-consumers | S3 read, DynamoDB write, Secrets read | Analytics consumer |
-| `search-indexer` | cdc-consumers | S3 read, DynamoDB write, Secrets read | Search indexer |
-| `flink-jobmanager` | flink | S3 read/write, CloudWatch metrics | Flink job manager |
-| `flink-taskmanager` | flink | S3 read/write, CloudWatch metrics | Flink task manager |
-| `schema-registry` | kafka | S3 read/write (schemas) | Avro schema storage |
-| `external-secrets` | external-secrets | Secrets Manager read | Sync AWS secrets to K8s |
-| `ebs-csi-controller-sa` | kube-system | EC2 volume operations | Persistent volume provisioning |
-
-### How EKS Pod Identity Works
-1. Terraform creates IAM role with trust policy for `pods.eks.amazonaws.com` service principal
-2. Terraform creates Pod Identity association linking the role to specific namespace/service account
-3. EKS Pod Identity agent (running as DaemonSet) injects temporary credentials into pods
-4. Pods automatically get AWS access without static keys or annotations
-5. Credentials are refreshed every 15 minutes (vs 1 hour with IRSA)
-
-### Benefits Over IRSA
-- **Simpler**: No OIDC provider configuration needed
-- **Faster**: Credentials refresh every 15 minutes vs 1 hour
-- **More scalable**: Better performance with large numbers of pods
-- **Cleaner**: No service account annotations required
-
-## 🗄️ Database Schema
-
-The platform uses a sample e-commerce schema with three main tables designed for Change Data Capture.
-
-### Tables
-
-#### Products Table
-```sql
-CREATE TABLE products (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    price DECIMAL(10,2) NOT NULL,
-    stock_quantity INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-#### Orders Table
-```sql
-CREATE TABLE orders (
-    id SERIAL PRIMARY KEY,
-    customer_id INTEGER NOT NULL,
-    total_amount DECIMAL(10,2) NOT NULL,
-    status VARCHAR(50) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-#### Order Items Table
-```sql
-CREATE TABLE order_items (
-    id SERIAL PRIMARY KEY,
-    order_id INTEGER REFERENCES orders(id),
-    product_id INTEGER REFERENCES products(id),
-    quantity INTEGER NOT NULL,
-    price DECIMAL(10,2) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-### CDC Configuration
-
-All tables are configured with:
-- **REPLICA IDENTITY FULL**: Required for Debezium to capture full row state
-- **Primary keys**: For row identification
-- **Foreign key relationships**: Between orders, products, and order_items
-- **Timestamps**: For audit tracking
-- **Indexes**: For query performance
-
-### RDS PostgreSQL Settings
-- **WAL level**: `logical` (enables change data capture)
-- **Max replication slots**: 10
-- **Max WAL senders**: 25
-- **RDS logical replication**: Enabled via parameter group
-
-### Schema Files
-- `scripts/schema.sql`: Complete schema definition with sample data
-- `scripts/init-database.sh`: Automated initialization script
-
-## 🔄 GitOps Workflow
-
-### Deployment Sync Waves
-ArgoCD deploys components in order using sync waves:
-
-```
-Wave 0: External Secrets Operator
-   ↓
-Wave 1: Kafka Cluster, Prometheus/Grafana
-   ↓
-Wave 2: Schema Registry, Flink Operator
-   ↓
-Wave 3: Debezium Connectors
-   ↓
-Wave 4: Consumer Services, Flink Jobs
-```
-
-### Making Changes
-
-**Infrastructure Changes (Terraform):**
-```bash
-# 1. Update Terraform files
-vim terraform/rds.tf
-
-# 2. Apply changes
-cd terraform
+terraform init
 terraform plan
 terraform apply
 
-# 3. Apply K8s service accounts if new namespaces/accounts added
 cd ..
-./scripts/apply-service-accounts.sh
-
-# Note: Pod Identity associations are managed by Terraform
-# No need to manually update service account annotations
 ```
 
-**Application Changes (Consumer Services):**
+### Step 3: Install Kafka Infrastructure
+
 ```bash
-# 1. Update application code
-vim apps/python/inventory-service/app.py
+# Install Strimzi operator and Kafka cluster
+./scripts/install-kafka.sh
 
-# 2. Build and push Docker image
-cd apps/python/inventory-service
-docker build -t <registry>/inventory-service:v1.1.0 .
-docker push <registry>/inventory-service:v1.1.0
-
-# 3. Update Kubernetes manifest
-cd ../../../k8s/consumers/inventory-service
-vim deployment.yaml  # Update image tag
-
-# 4. Commit and push
-git add deployment.yaml
-git commit -m "Deploy inventory-service v1.1.0"
-git push
-
-# 5. ArgoCD auto-syncs (or manual sync)
-argocd app sync inventory-service
+# Verify Kafka cluster is ready
+kubectl get kafka -n kafka
+kubectl get pods -n kafka
 ```
 
-**Kafka/Debezium Configuration:**
+### Step 4: Initialize Database
+
 ```bash
-# 1. Update connector config
-vim k8s/debezium/postgres-connector.yaml
-
-# 2. Commit and push
-git add k8s/debezium/
-git commit -m "Increase Debezium batch size"
-git push
-
-# 3. ArgoCD detects and applies change
-# Watch in UI or: argocd app sync debezium-connectors
+# Create sample e-commerce database and enable CDC
+./scripts/init-database.sh
 ```
 
-## 📈 Monitoring & Observability
+### Step 5: Deploy Debezium Connectors
 
-### Accessing Grafana
 ```bash
-kubectl port-forward svc/prometheus-operator-grafana -n monitoring 3000:80
-# Open http://localhost:3000
-# Login: admin / admin (change in production!)
-```
+# Deploy Debezium CDC connectors
+./scripts/install-debezium.sh
 
-### Pre-configured Dashboards
-- Kafka cluster overview
-- Kafka Connect connector status
-- Consumer lag monitoring
-- Flink job metrics
-- Kubernetes cluster health
-
-### Accessing Prometheus
-```bash
-kubectl port-forward svc/prometheus-operator-kube-prom-prometheus -n monitoring 9090:9090
-# Open http://localhost:9090
-```
-
-### Key Metrics to Monitor
-- **Kafka**: Topic lag, throughput, partition distribution
-- **Debezium**: Connector status, snapshot progress, replication lag
-- **Consumers**: Processing rate, error rate, DLQ events
-- **Flink**: Checkpoint duration, backpressure, task status
-- **RDS**: Replication slot lag, WAL generation rate
-
-## 🧪 Testing CDC Pipeline
-
-### 1. Insert Test Data
-```bash
-# Get RDS endpoint
-cd terraform
-terraform output rds_endpoint
-
-# Connect to database
-kubectl run psql-client --rm -it --restart=Never \
-  --image=postgres:16 --namespace=kafka \
-  -- psql -h <rds-endpoint> -U dbadmin -d ecommerce
-
-# Insert sample data
-INSERT INTO products (name, description, price, stock_quantity) 
-VALUES ('Test Product', 'CDC Test', 99.99, 100);
-
-UPDATE products SET price = 89.99 WHERE name = 'Test Product';
-
-DELETE FROM products WHERE name = 'Test Product';
-```
-
-### 2. Verify Kafka Topics
-```bash
-# List topics
-kubectl exec -it cdc-platform-kafka-0 -n kafka -- bash
-bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
-
-# Expected topics:
-# - dbserver1.public.products
-# - dbserver1.public.orders
-# - dbserver1.public.order_items
-
-# Consume events
-bin/kafka-console-consumer.sh \
-  --bootstrap-server localhost:9092 \
-  --topic dbserver1.public.products \
-  --from-beginning
-```
-
-### 3. Check S3 Data Lake
-```bash
-aws s3 ls s3://cdc-platform-data-lake-<account-id>/topics/
-```
-
-### 4. Verify Consumer Processing
-```bash
-kubectl logs -l app=inventory-service -n cdc-consumers
-kubectl logs -l app=analytics-service -n cdc-consumers
-```
-
-## 🛡️ Security Best Practices
-
-### Implemented
-- ✅ VPC with private subnets for data plane
-- ✅ EKS cluster endpoint restricted (can enable private)
-- ✅ EKS Pod Identity (no static AWS credentials)
-- ✅ Secrets stored in AWS Secrets Manager
-- ✅ RDS encryption at rest
-- ✅ S3 bucket encryption (AES-256)
-- ✅ Security groups with least privilege
-- ✅ Network policies (to be added)
-
-### Production Recommendations
-- [ ] Enable EKS private endpoint
-- [ ] Implement Pod Security Standards
-- [ ] Add AWS WAF for API protection
-- [ ] Enable VPC Flow Logs
-- [ ] Implement secrets rotation
-- [ ] Add network policies between namespaces
-- [ ] Enable audit logging (CloudTrail, EKS audit logs)
-- [ ] Implement certificate management (cert-manager)
-
-## 💰 Cost Optimization
-
-### Spot Instance Configuration
-
-This platform is **optimized for EC2 Spot Instances**, providing **up to 90% cost savings**:
-
-- ✅ **Dual NodePool Strategy**: High-priority spot-optimized pool + fallback default pool
-- ✅ **Kafka Brokers**: Pre-configured with spot tolerations
-- ✅ **Kafka Connect**: Pre-configured with spot tolerations
-- ✅ **Wide Instance Selection**: c/m/r families (2-16 cores) for maximum spot availability
-- ✅ **Automatic Failover**: Karpenter handles spot interruptions gracefully
-
-See [SPOT_INSTANCES.md](SPOT_INSTANCES.md) for detailed configuration guide.
-
-### Cost Comparison
-
-#### On-Demand (Before)
-- **EKS**: ~$73/month (control plane)
-- **EC2**: ~$439/month (Kafka + Connect + Consumers on-demand)
-- **RDS**: ~$25/month (db.t3.micro)
-- **S3**: ~$5/month (with lifecycle policies)
-
-**Total**: ~$542/month
-
-#### Spot-Optimized (After)
-- **EKS**: ~$73/month (control plane)
-- **EC2**: ~$132/month (70% savings with spot instances)
-- **RDS**: ~$25/month (db.t3.micro)
-- **S3**: ~$5/month (with lifecycle policies)
-
-**Total**: ~$235/month | **Savings**: ~$307/month (~$3,700/year)
-
-### Additional Cost Savings
-- S3 lifecycle policies move data to cheaper tiers
-- RDS Multi-AZ disabled for dev
-- Single NAT gateway in dev
-- Karpenter consolidates underutilized nodes
-
-### Production Considerations
-- Enable RDS Multi-AZ for high availability
-- Use reserved instances for control plane baseline
-- Combine spot + reserved for optimal cost/availability
-- Implement proper data retention policies
-- Monitor spot interruption rates by instance type
-
-## 🔧 Troubleshooting
-
-### Debezium Not Capturing Changes
-```bash
-# Check connector status
+# Verify connectors are running
 kubectl get kafkaconnector -n kafka
-kubectl describe kafkaconnector postgres-connector -n kafka
-
-# Check connector logs
-kubectl logs -l strimzi.io/cluster=kafka-connect -n kafka --tail=100
-
-# Verify RDS logical replication
-# Connect to RDS and run:
-SHOW wal_level;  -- Should be 'logical'
-SELECT * FROM pg_replication_slots;
 ```
 
-### ArgoCD Application Out of Sync
+### Step 6: Build and Deploy Flink Jobs
+
 ```bash
-# Check application status
-argocd app get <app-name>
+# Build Flink job Docker images
+./scripts/build-flink-jobs.sh
 
-# View sync errors
-argocd app logs <app-name>
-
-# Force sync
-argocd app sync <app-name> --force
-
-# Refresh from Git
-argocd app refresh <app-name>
+# Submit Flink jobs to the cluster
+./scripts/submit-flink-job.sh sales-aggregations
+./scripts/submit-flink-job.sh anomaly-detection
+./scripts/submit-flink-job.sh customer-segmentation
+./scripts/submit-flink-job.sh inventory-optimizer
 ```
 
-### Pods Can't Access S3/RDS
+### Step 7: Verify Deployment
+
 ```bash
-# Verify Pod Identity association exists
-aws eks list-pod-identity-associations --cluster-name cdc-platform --region us-east-1
+# Check all pods are running
+kubectl get pods -A
 
-# Check specific association
-aws eks describe-pod-identity-association \
-  --cluster-name cdc-platform \
-  --association-id <association-id> \
-  --region us-east-1
+# Access ArgoCD UI
+echo "ArgoCD URL: https://argocd.your-domain.com"
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 -d
 
-# Check if pod has AWS credentials injected
-kubectl exec -it <pod-name> -n <namespace> -- env | grep AWS
+# Access Flink Dashboard
+echo "Flink URL: https://flink.your-domain.com"
 
-# Verify Pod Identity agent is running
-kubectl get pods -n kube-system -l app.kubernetes.io/name=eks-pod-identity-agent
-
-# Test AWS access from pod
-kubectl exec -it <pod-name> -n <namespace> -- aws s3 ls
+# Check Kafka topics
+kubectl exec -it cdc-platform-kafka-brokers-0 -n kafka -- \
+  bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
 ```
 
-### Kafka Consumer Lag
-```bash
-# Check consumer group lag
-kubectl exec -it cdc-platform-kafka-0 -n kafka -- \
-  bin/kafka-consumer-groups.sh \
-  --bootstrap-server localhost:9092 \
-  --group <consumer-group> \
-  --describe
+## 🔄 GitOps Workflow
 
-# Scale consumer deployment
-kubectl scale deployment/<consumer-name> -n cdc-consumers --replicas=3
+The platform uses ArgoCD for automated deployments:
+
+1. **Make changes** to application manifests in `argocd/app-manifests/`
+2. **Commit and push** to Git
+3. **ArgoCD automatically syncs** changes to the cluster
+4. **Monitor** via ArgoCD UI at `https://argocd.your-domain.com`
+
+### Manual Sync (if needed)
+
+```bash
+# Sync specific application
+kubectl patch application consumer-apps -n argocd \
+  --type merge -p '{"operation":{"sync":{"revision":"main"}}}'
+
+# Sync all applications
+kubectl patch application root-app -n argocd \
+  --type merge -p '{"operation":{"sync":{"revision":"main"}}}'
 ```
 
 ## 🧹 Cleanup
 
-### Option 1: Complete Cleanup (Recommended)
-
-Use the cleanup script for a clean teardown:
+### Option 1: Clean up applications (keep infrastructure)
 
 ```bash
-chmod +x scripts/cleanup.sh
-./scripts/cleanup.sh
+# Comprehensive cleanup of apps and Kafka
+./scripts/cleanup-all.sh
 ```
 
-### Option 2: Manual Cleanup
+### Option 2: Full teardown (including infrastructure)
 
-#### Step 1: Delete Kafka Resources First
 ```bash
-# IMPORTANT: Clean up Kafka resources before deleting namespace
-# This prevents orphaned rolebindings that block reinstallation
+# Clean up everything including EKS cluster
+./scripts/cleanup-all.sh
 
-# Delete Kafka connectors
-kubectl delete kafkaconnector -n kafka --all
+# Destroy application layer
+cd terraform-apps
+terraform destroy
 
-# Delete Kafka Connect clusters
-kubectl delete kafkaconnect -n kafka --all
-
-# Delete Kafka clusters
-kubectl delete kafka -n kafka --all
-
-# Wait for Kafka resources to be fully deleted
-kubectl wait --for=delete kafka/cdc-platform -n kafka --timeout=120s
-
-# Uninstall Strimzi operator (removes CRDs and operator)
-helm uninstall strimzi-operator -n kafka
-
-# Delete the namespace (this will clean up remaining resources)
-kubectl delete namespace kafka
-```
-
-#### Step 2: Delete ArgoCD Resources
-```bash
-# Delete ArgoCD root app (cascades to all apps)
-kubectl delete application cdc-platform-root -n argocd
-
-# Or delete ArgoCD entirely
-kubectl delete namespace argocd
-```
-
-#### Step 3: Delete Other Namespaces
-```bash
-kubectl delete namespace cdc-consumers
-kubectl delete namespace flink
-kubectl delete namespace external-secrets
-kubectl delete namespace monitoring
-```
-
-#### Step 4: Destroy AWS Infrastructure
-```bash
-cd terraform
+# Destroy infrastructure layer
+cd ../terraform-infra
 terraform destroy
 ```
 
-**Warning**: This deletes:
-- EKS cluster and all workloads
-- RDS database (including data)
-- S3 buckets (will fail if not empty)
-- DynamoDB tables (must be deleted separately if created by applications)
-- All IAM roles and policies
+## 📊 Monitoring & Observability
 
-**Note**: DynamoDB tables are created by applications at runtime and are NOT managed by Terraform. Use `./scripts/cleanup.sh` for complete cleanup, or `./scripts/cleanup-dynamodb.sh` to delete only tables.
+### Access Dashboards
 
-### Troubleshooting Cleanup Issues
-
-**If Kafka namespace won't delete:**
 ```bash
-# Remove finalizers from stuck resources
-kubectl patch kafka cdc-platform -n kafka -p '{"metadata":{"finalizers":[]}}' --type=merge
-kubectl patch kafkaconnect cdc-platform-connect -n kafka -p '{"metadata":{"finalizers":[]}}' --type=merge
+# ArgoCD - GitOps Dashboard
+https://argocd.your-domain.com
 
-# Force delete namespace
-kubectl delete namespace kafka --grace-period=0 --force
+# Flink - Stream Processing Dashboard
+https://flink.your-domain.com
+
+# Kafka - Topic and Consumer Metrics
+kubectl port-forward -n kafka svc/cdc-platform-kafka-exporter 9308:9308
 ```
 
-**If S3 bucket deletion fails:**
-```bash
-# Empty S3 buckets first
-aws s3 rm s3://cdc-platform-data-lake-<account-id> --recursive
-aws s3 rm s3://cdc-platform-dlq-<account-id> --recursive
-aws s3 rm s3://cdc-platform-kafka-connect-<account-id> --recursive
+### Check Kafka Consumer Lag
 
-# Then retry terraform destroy
-terraform destroy
+```bash
+kubectl exec -it cdc-platform-kafka-brokers-0 -n kafka -- \
+  bin/kafka-consumer-groups.sh \
+  --bootstrap-server localhost:9092 \
+  --describe --all-groups
 ```
 
-**To delete only DynamoDB tables (without full cleanup):**
-```bash
-# Use the standalone cleanup script
-./scripts/cleanup-dynamodb.sh
+### View Debezium Connector Status
 
-# Or manually delete specific tables
-aws dynamodb delete-table --table-name cdc-platform-inventory-realtime --region us-east-1
-aws dynamodb delete-table --table-name cdc-platform-product-search-index --region us-east-1
+```bash
+kubectl get kafkaconnector -n kafka -o wide
 ```
 
-## 📚 Additional Resources
+## 🛠️ Troubleshooting
 
-### Documentation
-- [Deployment Guide](DEPLOYMENT.md) - Detailed step-by-step deployment
-- [Debezium Docs](https://debezium.io/documentation/reference/stable/connectors/postgresql.html)
-- [Strimzi Kafka Operator](https://strimzi.io/docs/operators/latest/overview.html)
-- [ArgoCD Best Practices](https://argo-cd.readthedocs.io/en/stable/user-guide/best_practices/)
-- [Karpenter Documentation](https://karpenter.sh/docs/)
+### Kafka Issues
 
-### AWS Resources
-- [EKS Best Practices](https://aws.github.io/aws-eks-best-practices/)
-- [RDS for PostgreSQL](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_PostgreSQL.html)
-- [EKS Pod Identity Documentation](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html)
+```bash
+# Check Strimzi operator logs
+kubectl logs -n kafka deployment/strimzi-cluster-operator
 
-## 🎓 Learning Objectives
+# Check Kafka broker logs
+kubectl logs -n kafka cdc-platform-kafka-brokers-0
 
-This project demonstrates proficiency in:
-- ✅ Modern cloud-native architecture patterns
-- ✅ Infrastructure as Code with Terraform
-- ✅ Kubernetes orchestration and operations
-- ✅ GitOps and continuous delivery
-- ✅ Real-time data streaming and CDC
-- ✅ Event-driven microservices architecture
-- ✅ AWS services integration
-- ✅ Security best practices (EKS Pod Identity, encryption, least privilege)
-- ✅ Monitoring and observability
-- ✅ Production-ready deployment patterns
+# Verify Kafka cluster status
+kubectl get kafka cdc-platform -n kafka -o yaml
+```
+
+### ArgoCD Sync Issues
+
+```bash
+# Check application status
+kubectl get applications -n argocd
+
+# View sync errors
+kubectl describe application consumer-apps -n argocd
+
+# Force refresh
+kubectl patch application consumer-apps -n argocd \
+  --type merge -p '{"operation":{"initiatedBy":{"username":"admin"}}}'
+```
+
+### Pod Identity Issues
+
+```bash
+# Verify pod identity associations
+aws eks list-pod-identity-associations --cluster-name cdc-platform
+
+# Check service account annotations
+kubectl get sa -n kafka kafka-connect -o yaml
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🔗 Additional Resources
+
+- [Apache Kafka Documentation](https://kafka.apache.org/documentation/)
+- [Strimzi Operator Guide](https://strimzi.io/docs/operators/latest/deploying.html)
+- [Debezium PostgreSQL Connector](https://debezium.io/documentation/reference/connectors/postgresql.html)
+- [Apache Flink Documentation](https://flink.apache.org/docs/stable/)
+- [ArgoCD Getting Started](https://argo-cd.readthedocs.io/en/stable/getting_started/)
+- [Karpenter Best Practices](https://karpenter.sh/docs/getting-started/)
+
 ---
-
-**Status**: 🚧 Active Development
-
-**Last Updated**: October 2025
