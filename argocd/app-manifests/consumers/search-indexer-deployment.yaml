@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search-indexer
+  namespace: cdc-consumers
+  labels:
+    app: search-indexer
+    component: cdc-consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: search-indexer
+  template:
+    metadata:
+      labels:
+        app: search-indexer
+        component: cdc-consumer
+    spec:
+      serviceAccountName: search-indexer
+      containers:
+      - name: search-indexer
+        image: search-indexer:latest
+        imagePullPolicy: Always
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "cdc-platform-kafka-bootstrap.kafka.svc.cluster.local:9092"
+        - name: KAFKA_GROUP_ID
+          value: "search-indexer-group"
+        - name: KAFKA_TOPIC
+          value: "dbserver1.public.products"
+        - name: DYNAMODB_TABLE
+          value: "cdc-platform-product-search-index"
+        - name: AWS_REGION
+          value: "us-east-1"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      # Tolerate spot instance interruptions
+      tolerations:
+      - key: "karpenter.sh/disruption"
+        operator: "Exists"
+        effect: "NoSchedule"
+      - key: "kubernetes.azure.com/scalesetpriority"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoSchedule"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: search-indexer
+  namespace: cdc-consumers
+  labels:
+    app: search-indexer
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: metrics
+  selector:
+    app: search-indexer

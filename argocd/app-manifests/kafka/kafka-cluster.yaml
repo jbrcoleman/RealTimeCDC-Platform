@@ -1,0 +1,208 @@
+---
+# KafkaNodePool for KRaft brokers
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: kafka-brokers
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: cdc-platform
+    app: kafka
+    platform: cdc
+spec:
+  replicas: 3
+  roles:
+    - broker
+    - controller
+  storage:
+    type: persistent-claim
+    size: 20Gi
+    class: gp2
+    deleteClaim: false
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+  jvmOptions:
+    -Xms: 1024m
+    -Xmx: 1024m
+  template:
+    pod:
+      tolerations:
+        # Allow Kafka brokers to run on spot instances
+        - key: karpenter.sh/spot
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            # Prefer spot instances for 70% cost savings
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: karpenter.sh/capacity-type
+                    operator: In
+                    values:
+                      - spot
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: cdc-platform
+  namespace: kafka
+  labels:
+    app: kafka
+    platform: cdc
+  annotations:
+    strimzi.io/kraft: "enabled"
+    strimzi.io/node-pools: "enabled"
+spec:
+  kafka:
+    version: 4.1.0
+    # Enable KRaft mode (no ZooKeeper)
+    metadataVersion: 4.1-IV0
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+    config:
+      # Replication settings for high availability
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      default.replication.factor: 3
+      min.insync.replicas: 2
+
+      # Log retention for CDC data
+      log.retention.hours: 168  # 7 days
+      log.retention.bytes: 1073741824  # 1GB per partition
+      log.segment.bytes: 1073741824
+
+      # Compression for better storage efficiency
+      compression.type: snappy
+
+      # Message size limits for CDC events
+      message.max.bytes: 1048576  # 1MB
+      replica.fetch.max.bytes: 1048576
+
+      # Performance tuning
+      num.network.threads: 3
+      num.io.threads: 8
+      socket.send.buffer.bytes: 102400
+      socket.receive.buffer.bytes: 102400
+      socket.request.max.bytes: 104857600
+
+      # Auto-create topics for Debezium
+      auto.create.topics.enable: true
+      num.partitions: 3
+
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: kafka-metrics
+          key: kafka-metrics-config.yml
+
+    # Rack awareness for multi-AZ deployment
+    rack:
+      topologyKey: topology.kubernetes.io/zone
+
+    template:
+      pod:
+        tolerations:
+          # Allow Kafka to run on spot instances for cost savings
+          - key: karpenter.sh/spot
+            operator: Equal
+            value: "true"
+            effect: NoSchedule
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchExpressions:
+                    - key: strimzi.io/name
+                      operator: In
+                      values:
+                        - cdc-platform-kafka
+                topologyKey: kubernetes.io/hostname
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              # Prefer spot instances (70% cost savings)
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - key: karpenter.sh/capacity-type
+                      operator: In
+                      values:
+                        - spot
+
+  # Note: ZooKeeper removed - using KRaft mode
+  entityOperator:
+    topicOperator:
+      resources:
+        requests:
+          memory: 512Mi
+          cpu: 100m
+        limits:
+          memory: 512Mi
+          cpu: 500m
+    userOperator:
+      resources:
+        requests:
+          memory: 512Mi
+          cpu: 100m
+        limits:
+          memory: 512Mi
+          cpu: 500m
+
+  kafkaExporter:
+    topicRegex: ".*"
+    groupRegex: ".*"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-metrics
+  namespace: kafka
+  labels:
+    app: strimzi
+data:
+  kafka-metrics-config.yml: |
+    lowercaseOutputName: true
+    rules:
+    # Kafka broker metrics
+    - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), topic=(.+), partition=(.*)><>Value
+      name: kafka_server_$1_$2
+      type: GAUGE
+      labels:
+        clientId: "$3"
+        topic: "$4"
+        partition: "$5"
+    - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), brokerHost=(.+), brokerPort=(.+)><>Value
+      name: kafka_server_$1_$2
+      type: GAUGE
+      labels:
+        clientId: "$3"
+        broker: "$4:$5"
+    # Log metrics for monitoring
+    - pattern: kafka.log<type=Log, name=(.+), topic=(.+), partition=(.+)><>Value
+      name: kafka_log_$1
+      type: GAUGE
+      labels:
+        topic: "$2"
+        partition: "$3"
+    # Network request metrics
+    - pattern: kafka.network<type=RequestMetrics, name=RequestsPerSec, request=(.+)><>Count
+      name: kafka_network_requests_total
+      type: COUNTER
+      labels:
+        request: "$1"

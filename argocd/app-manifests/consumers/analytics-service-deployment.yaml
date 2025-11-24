@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: cdc-consumers
+  labels:
+    app: analytics-service
+    component: cdc-consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analytics-service
+  template:
+    metadata:
+      labels:
+        app: analytics-service
+        component: cdc-consumer
+    spec:
+      serviceAccountName: analytics-service
+      containers:
+      - name: analytics-service
+        image: analytics-service:latest
+        imagePullPolicy: Always
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "cdc-platform-kafka-bootstrap.kafka.svc.cluster.local:9092"
+        - name: KAFKA_GROUP_ID
+          value: "analytics-service-group"
+        - name: KAFKA_TOPICS
+          value: "dbserver1.public.orders,dbserver1.public.order_items"
+        - name: S3_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: aws-config
+              key: data_lake_bucket
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: FLUSH_INTERVAL
+          value: "300"  # 5 minutes
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      # Tolerate spot instance interruptions
+      tolerations:
+      - key: "karpenter.sh/disruption"
+        operator: "Exists"
+        effect: "NoSchedule"
+      - key: "kubernetes.azure.com/scalesetpriority"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoSchedule"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-service
+  namespace: cdc-consumers
+  labels:
+    app: analytics-service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: metrics
+  selector:
+    app: analytics-service
