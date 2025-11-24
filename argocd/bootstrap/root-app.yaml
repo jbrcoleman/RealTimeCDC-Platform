@@ -1,27 +1,22 @@
----
-# Root Application - App of Apps Pattern
-# This application manages all other applications in the CDC platform
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: cdc-platform-root
+  name: root-app
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-  
+
   source:
-    repoURL: https://github.com/jbrcoleman/RealTimeCDC-Platform 
-    targetRevision: main
-    path: argocd/apps
-    directory:
-      recurse: true
-  
+    repoURL: ${repo_url}
+    targetRevision: ${revision}
+    path: argocd/applications
+
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
-  
+
   syncPolicy:
     automated:
       prune: true

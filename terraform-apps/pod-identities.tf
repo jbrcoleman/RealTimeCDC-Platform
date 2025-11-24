@@ -1,7 +1,5 @@
-locals {
-  # RDS-managed secret ARN (null until RDS instance is created with manage_master_user_password)
-  rds_master_secret_arn = length(aws_db_instance.postgres.master_user_secret) > 0 ? aws_db_instance.postgres.master_user_secret[0].secret_arn : ""
-}
+# Pod identities reference resources from terraform-infra via remote state
+# See data.tf for local variable definitions
 
 module "kafka_connect_pod_identity" {
   source  = "terraform-aws-modules/eks-pod-identity/aws"
@@ -15,7 +13,7 @@ module "kafka_connect_pod_identity" {
 
   associations = {
     kafka_connect = {
-      cluster_name    = module.eks.cluster_name
+      cluster_name    = local.cluster_name
       namespace       = kubernetes_namespace.kafka.metadata[0].name
       service_account = kubernetes_service_account.kafka_connect.metadata[0].name
     }
@@ -38,9 +36,9 @@ resource "aws_iam_policy" "kafka_connect" {
           "s3:GetBucketLocation"
         ]
         Resource = [
-          aws_s3_bucket.cdc_data_lake.arn,
-          aws_s3_bucket.cdc_dlq.arn,
-          aws_s3_bucket.kafka_connect_storage.arn
+          local.data_lake_bucket_arn,
+          local.dlq_bucket_arn,
+          local.kafka_connect_storage_bucket_arn
         ]
       },
       {
@@ -52,9 +50,9 @@ resource "aws_iam_policy" "kafka_connect" {
           "s3:PutObjectAcl"
         ]
         Resource = [
-          "${aws_s3_bucket.cdc_data_lake.arn}/*",
-          "${aws_s3_bucket.cdc_dlq.arn}/*",
-          "${aws_s3_bucket.kafka_connect_storage.arn}/*"
+          "${local.data_lake_bucket_arn}/*",
+          "${local.dlq_bucket_arn}/*",
+          "${local.kafka_connect_storage_bucket_arn}/*"
         ]
       },
       {
@@ -64,7 +62,7 @@ resource "aws_iam_policy" "kafka_connect" {
           "secretsmanager:DescribeSecret"
         ]
         Resource = compact([
-          aws_secretsmanager_secret.db_connection.arn,
+          local.db_connection_secret_arn,
           local.rds_master_secret_arn
         ])
       },
@@ -105,7 +103,7 @@ module "debezium_pod_identity" {
 
   associations = {
     debezium = {
-      cluster_name    = module.eks.cluster_name
+      cluster_name    = local.cluster_name
       namespace       = kubernetes_namespace.kafka.metadata[0].name
       service_account = kubernetes_service_account.debezium.metadata[0].name
     }
@@ -128,7 +126,7 @@ resource "aws_iam_policy" "debezium" {
           "secretsmanager:DescribeSecret"
         ]
         Resource = compact([
-          aws_secretsmanager_secret.db_connection.arn,
+          local.db_connection_secret_arn,
           local.rds_master_secret_arn
         ])
       }
@@ -155,18 +153,18 @@ module "cdc_consumer_pod_identity" {
 
   associations = {
     inventory_service = {
-      cluster_name    = module.eks.cluster_name
-      namespace       = kubernetes_namespace.cdc_consumers.metadata[0].name
+      cluster_name    = local.cluster_name
+      namespace       = kubernetes_namespace.consumers.metadata[0].name
       service_account = kubernetes_service_account.inventory_service.metadata[0].name
     }
     analytics_service = {
-      cluster_name    = module.eks.cluster_name
-      namespace       = kubernetes_namespace.cdc_consumers.metadata[0].name
+      cluster_name    = local.cluster_name
+      namespace       = kubernetes_namespace.consumers.metadata[0].name
       service_account = kubernetes_service_account.analytics_service.metadata[0].name
     }
     search_indexer = {
-      cluster_name    = module.eks.cluster_name
-      namespace       = kubernetes_namespace.cdc_consumers.metadata[0].name
+      cluster_name    = local.cluster_name
+      namespace       = kubernetes_namespace.consumers.metadata[0].name
       service_account = kubernetes_service_account.search_indexer.metadata[0].name
     }
   }
@@ -188,8 +186,8 @@ resource "aws_iam_policy" "cdc_consumer" {
           "s3:ListBucket"
         ]
         Resource = [
-          aws_s3_bucket.cdc_data_lake.arn,
-          "${aws_s3_bucket.cdc_data_lake.arn}/*"
+          local.data_lake_bucket_arn,
+          "${local.data_lake_bucket_arn}/*"
         ]
       },
       {
@@ -198,7 +196,7 @@ resource "aws_iam_policy" "cdc_consumer" {
           "s3:PutObject"
         ]
         Resource = [
-          "${aws_s3_bucket.cdc_dlq.arn}/*"
+          "${local.dlq_bucket_arn}/*"
         ]
       },
       {
@@ -216,7 +214,7 @@ resource "aws_iam_policy" "cdc_consumer" {
           "dynamodb:ListTables"
         ]
         Resource = [
-          "arn:aws:dynamodb:${var.region}:${data.aws_caller_identity.current.account_id}:table/${local.name}-*"
+          "arn:aws:dynamodb:${local.region}:${local.account_id}:table/${local.name}-*"
         ]
       },
       {
@@ -226,7 +224,7 @@ resource "aws_iam_policy" "cdc_consumer" {
           "secretsmanager:DescribeSecret"
         ]
         Resource = [
-          aws_secretsmanager_secret.db_connection.arn
+          local.db_connection_secret_arn
         ]
       }
     ]
@@ -251,12 +249,12 @@ module "flink_pod_identity" {
 
   associations = {
     jobmanager = {
-      cluster_name    = module.eks.cluster_name
+      cluster_name    = local.cluster_name
       namespace       = kubernetes_namespace.flink.metadata[0].name
       service_account = kubernetes_service_account.flink_jobmanager.metadata[0].name
     }
     taskmanager = {
-      cluster_name    = module.eks.cluster_name
+      cluster_name    = local.cluster_name
       namespace       = kubernetes_namespace.flink.metadata[0].name
       service_account = kubernetes_service_account.flink_taskmanager.metadata[0].name
     }
@@ -279,8 +277,8 @@ resource "aws_iam_policy" "flink" {
           "s3:GetBucketLocation"
         ]
         Resource = [
-          aws_s3_bucket.cdc_data_lake.arn,
-          aws_s3_bucket.kafka_connect_storage.arn
+          local.data_lake_bucket_arn,
+          local.kafka_connect_storage_bucket_arn
         ]
       },
       {
@@ -291,8 +289,8 @@ resource "aws_iam_policy" "flink" {
           "s3:DeleteObject"
         ]
         Resource = [
-          "${aws_s3_bucket.cdc_data_lake.arn}/*",
-          "${aws_s3_bucket.kafka_connect_storage.arn}/*"
+          "${local.data_lake_bucket_arn}/*",
+          "${local.kafka_connect_storage_bucket_arn}/*"
         ]
       },
       {
@@ -329,7 +327,7 @@ module "schema_registry_pod_identity" {
 
   associations = {
     schema_registry = {
-      cluster_name    = module.eks.cluster_name
+      cluster_name    = local.cluster_name
       namespace       = kubernetes_namespace.kafka.metadata[0].name
       service_account = kubernetes_service_account.schema_registry.metadata[0].name
     }
@@ -352,7 +350,7 @@ resource "aws_iam_policy" "schema_registry" {
           "s3:GetBucketLocation"
         ]
         Resource = [
-          aws_s3_bucket.kafka_connect_storage.arn
+          local.kafka_connect_storage_bucket_arn
         ]
       },
       {
@@ -363,7 +361,7 @@ resource "aws_iam_policy" "schema_registry" {
           "s3:DeleteObject"
         ]
         Resource = [
-          "${aws_s3_bucket.kafka_connect_storage.arn}/schemas/*"
+          "${local.kafka_connect_storage_bucket_arn}/schemas/*"
         ]
       }
     ]
@@ -389,7 +387,7 @@ module "external_secrets_pod_identity" {
 
   associations = {
     external_secrets = {
-      cluster_name    = module.eks.cluster_name
+      cluster_name    = local.cluster_name
       namespace       = kubernetes_namespace.external_secrets.metadata[0].name
       service_account = kubernetes_service_account.external_secrets.metadata[0].name
     }
@@ -413,7 +411,7 @@ resource "aws_iam_policy" "external_secrets" {
           "secretsmanager:ListSecrets"
         ]
         Resource = compact([
-          aws_secretsmanager_secret.db_connection.arn,
+          local.db_connection_secret_arn,
           local.rds_master_secret_arn
         ])
       }
@@ -425,167 +423,5 @@ resource "aws_iam_policy" "external_secrets" {
 
 ################################################################################
 # EBS CSI Driver Service Account IAM Role
-# Required for EBS volumes provisioning in EKS
+# NOTE: Moved to terraform-infra workspace to ensure it's created before the addon
 ################################################################################
-
-module "ebs_csi_driver_pod_identity" {
-  source  = "terraform-aws-modules/eks-pod-identity/aws"
-  version = "~> 1.0"
-
-  name = "${local.name}-ebs-csi-driver"
-
-  additional_policy_arns = {
-    ebs_csi_driver = aws_iam_policy.ebs_csi_driver.arn
-  }
-
-  associations = {
-    ebs_csi_controller = {
-      cluster_name    = module.eks.cluster_name
-      namespace       = "kube-system"
-      service_account = "ebs-csi-controller-sa"
-    }
-  }
-
-  tags = local.tags
-}
-
-resource "aws_iam_policy" "ebs_csi_driver" {
-  name        = "${local.name}-ebs-csi-driver-policy"
-  description = "Policy for EBS CSI Driver to manage EBS volumes"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2:CreateSnapshot",
-          "ec2:AttachVolume",
-          "ec2:DetachVolume",
-          "ec2:ModifyVolume",
-          "ec2:DescribeAvailabilityZones",
-          "ec2:DescribeInstances",
-          "ec2:DescribeSnapshots",
-          "ec2:DescribeTags",
-          "ec2:DescribeVolumes",
-          "ec2:DescribeVolumesModifications"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2:CreateTags"
-        ]
-        Resource = [
-          "arn:aws:ec2:*:*:volume/*",
-          "arn:aws:ec2:*:*:snapshot/*"
-        ]
-        Condition = {
-          StringEquals = {
-            "ec2:CreateAction" = [
-              "CreateVolume",
-              "CreateSnapshot"
-            ]
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2:DeleteTags"
-        ]
-        Resource = [
-          "arn:aws:ec2:*:*:volume/*",
-          "arn:aws:ec2:*:*:snapshot/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2:CreateVolume"
-        ]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "aws:RequestTag/ebs.csi.aws.com/cluster" = "true"
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2:CreateVolume"
-        ]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "aws:RequestTag/CSIVolumeName" = "*"
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2:DeleteVolume"
-        ]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "ec2:ResourceTag/ebs.csi.aws.com/cluster" = "true"
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2:DeleteVolume"
-        ]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "ec2:ResourceTag/CSIVolumeName" = "*"
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2:DeleteVolume"
-        ]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "ec2:ResourceTag/kubernetes.io/created-for/pvc/name" = "*"
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2:DeleteSnapshot"
-        ]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "ec2:ResourceTag/CSIVolumeSnapshotName" = "*"
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2:DeleteSnapshot"
-        ]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "ec2:ResourceTag/ebs.csi.aws.com/cluster" = "true"
-          }
-        }
-      }
-    ]
-  })
-
-  tags = local.tags
-}
