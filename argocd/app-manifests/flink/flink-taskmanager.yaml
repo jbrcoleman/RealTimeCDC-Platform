@@ -28,7 +28,7 @@ spec:
             jobmanager.rpc.address: flink-jobmanager
             taskmanager.numberOfTaskSlots: 2
         - name: KAFKA_BOOTSTRAP_SERVERS
-          value: "my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"
+          value: "cdc-platform-kafka-bootstrap.kafka.svc.cluster.local:9092"
         resources:
           requests:
             memory: "2Gi"

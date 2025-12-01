@@ -33,7 +33,7 @@ spec:
             taskmanager.numberOfTaskSlots: 2
             parallelism.default: 2
         - name: KAFKA_BOOTSTRAP_SERVERS
-          value: "my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"
+          value: "cdc-platform-kafka-bootstrap.kafka.svc.cluster.local:9092"
         resources:
           requests:
             memory: "1Gi"
