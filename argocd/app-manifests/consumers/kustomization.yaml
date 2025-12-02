@@ -4,6 +4,7 @@ kind: Kustomization
 namespace: consumers
 
 resources:
+  - aws-config.yaml
   - analytics-service-deployment.yaml
   - inventory-service-deployment.yaml
   - search-indexer-deployment.yaml
@@ -21,6 +22,5 @@ images:
     newName: 296592524620.dkr.ecr.us-east-1.amazonaws.com/search-indexer
     newTag: latest
 
-# Note: aws-config ConfigMap must be created in the cluster before deploying
-# This ConfigMap contains account-specific values and is NOT tracked in Git
-# Create it using: scripts/setup-aws-config.sh
+# Note: aws-config ConfigMap is now managed by ArgoCD
+# Previously it was created separately, but now it's part of the deployment

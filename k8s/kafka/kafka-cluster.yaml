@@ -37,6 +37,15 @@ spec:
           operator: Equal
           value: "true"
           effect: NoSchedule
+      topologySpreadConstraints:
+        # REQUIRE brokers to be spread across different AZs
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              strimzi.io/cluster: cdc-platform
+              strimzi.io/pool-name: kafka-brokers
       affinity:
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -124,6 +133,15 @@ spec:
             operator: Equal
             value: "true"
             effect: NoSchedule
+        topologySpreadConstraints:
+          # REQUIRE brokers to be spread across different AZs
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                strimzi.io/cluster: cdc-platform
+                strimzi.io/name: cdc-platform-kafka
         affinity:
           podAntiAffinity:
             requiredDuringSchedulingIgnoredDuringExecution:
