@@ -82,7 +82,6 @@ resource "kubectl_manifest" "argocd_root_app" {
   })
 
   depends_on = [
-    helm_release.argocd,
-    helm_release.strimzi_operator
+    helm_release.argocd
   ]
 }

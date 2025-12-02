@@ -69,14 +69,17 @@ print_status "Kafka Connect is ready"
 # Get RDS connection details from Terraform
 echo ""
 echo "📡 Getting RDS connection details..."
-cd terraform
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+cd "$PROJECT_ROOT/terraform-infra"
 
 RDS_ENDPOINT=$(terraform output -raw rds_endpoint 2>/dev/null || echo "")
 RDS_DATABASE=$(terraform output -raw rds_database_name 2>/dev/null || echo "ecommerce")
 RDS_USERNAME=$(terraform output -raw rds_username 2>/dev/null || echo "dbadmin")
-SECRET_ARN=$(terraform output -raw rds_master_user_secret_arn 2>/dev/null || echo "")
+SECRET_ARN=$(terraform output -raw rds_master_secret_arn 2>/dev/null || echo "")
 
-cd ..
+cd "$PROJECT_ROOT"
 
 if [ -z "$RDS_ENDPOINT" ]; then
     print_error "Could not get RDS endpoint from Terraform outputs"

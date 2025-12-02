@@ -14,7 +14,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: flink-job
-          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/flink-inventory-optimizer:latest
+          image: 296592524620.dkr.ecr.us-east-1.amazonaws.com/flink-inventory-optimizer:latest
           command:
             - /opt/flink/bin/flink
             - run
@@ -26,7 +26,7 @@ spec:
             - name: AWS_REGION
               value: "us-east-1"
             - name: KAFKA_BOOTSTRAP_SERVERS
-              value: "kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"
+              value: "cdc-platform-kafka-bootstrap.kafka.svc.cluster.local:9092"
             - name: TABLE_PREFIX
               value: "cdc-platform"
           resources:

@@ -182,20 +182,24 @@ resource "aws_iam_policy" "cdc_consumer" {
       {
         Effect = "Allow"
         Action = [
-          "s3:GetObject",
-          "s3:ListBucket"
+          "s3:ListBucket",
+          "s3:GetBucketLocation"
         ]
         Resource = [
           local.data_lake_bucket_arn,
-          "${local.data_lake_bucket_arn}/*"
+          local.dlq_bucket_arn
         ]
       },
       {
         Effect = "Allow"
         Action = [
-          "s3:PutObject"
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:PutObjectAcl",
+          "s3:DeleteObject"
         ]
         Resource = [
+          "${local.data_lake_bucket_arn}/*",
           "${local.dlq_bucket_arn}/*"
         ]
       },

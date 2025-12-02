@@ -29,17 +29,13 @@ data "kubernetes_ingress_v1" "argocd" {
   depends_on = [time_sleep.wait_for_alb]
 }
 
-# Local value to safely extract ALB hostname
+# Local value to extract ALB hostname
 locals {
-  alb_hostname = try(
-    data.kubernetes_ingress_v1.argocd.status[0].load_balancer[0].ingress[0].hostname,
-    null
-  )
+  alb_hostname = data.kubernetes_ingress_v1.argocd.status[0].load_balancer[0].ingress[0].hostname
 }
 
-# ArgoCD DNS Record - Only create if ingress exists and has ALB assigned
+# ArgoCD DNS Record
 resource "aws_route53_record" "argocd" {
-  count   = local.alb_hostname != null ? 1 : 0
   zone_id = data.aws_route53_zone.main.zone_id
   name    = "argocd.${var.domain_name}"
   type    = "A"
@@ -49,12 +45,13 @@ resource "aws_route53_record" "argocd" {
     zone_id                = data.aws_elb_hosted_zone_id.main.id
     evaluate_target_health = true
   }
+
+  depends_on = [data.kubernetes_ingress_v1.argocd]
 }
 
-# Flink DNS Record - Only create if ingress exists and has ALB assigned
+# Flink DNS Record
 # Uses the same ALB hostname since both ingresses share the same ALB
 resource "aws_route53_record" "flink" {
-  count   = local.alb_hostname != null ? 1 : 0
   zone_id = data.aws_route53_zone.main.zone_id
   name    = "flink.${var.domain_name}"
   type    = "A"
@@ -64,4 +61,6 @@ resource "aws_route53_record" "flink" {
     zone_id                = data.aws_elb_hosted_zone_id.main.id
     evaluate_target_health = true
   }
+
+  depends_on = [data.kubernetes_ingress_v1.argocd]
 }

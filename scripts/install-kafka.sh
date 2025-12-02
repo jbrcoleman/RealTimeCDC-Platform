@@ -65,11 +65,29 @@ fi
 # Delete namespace-scoped resources first
 if kubectl get namespace kafka &> /dev/null; then
     print_warning "Cleaning up kafka namespace resources..."
+
+    # Remove finalizers from Strimzi resources to speed up deletion
+    kubectl get kafkatopic -n kafka -o name 2>/dev/null | xargs -I {} kubectl patch {} -n kafka -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+    kubectl get kafka -n kafka -o name 2>/dev/null | xargs -I {} kubectl patch {} -n kafka -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+    kubectl get kafkaconnect -n kafka -o name 2>/dev/null | xargs -I {} kubectl patch {} -n kafka -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+    kubectl get kafkanodepool -n kafka -o name 2>/dev/null | xargs -I {} kubectl patch {} -n kafka -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+
     # Delete all rolebindings in kafka namespace
     kubectl delete rolebindings -n kafka --all 2>/dev/null || true
-    # Delete namespace
-    kubectl delete namespace kafka --timeout=60s || true
-    sleep 5
+
+    # Delete namespace (should be much faster now)
+    kubectl delete namespace kafka --timeout=30s || {
+        print_warning "Namespace deletion timed out, forcing cleanup..."
+        kubectl delete namespace kafka --grace-period=0 --force 2>/dev/null || true
+    }
+
+    # Wait for namespace to be fully deleted
+    max_wait=30
+    count=0
+    while kubectl get namespace kafka &> /dev/null && [ $count -lt $max_wait ]; do
+        sleep 1
+        count=$((count + 1))
+    done
 fi
 
 # Clean up cluster-scoped resources
@@ -211,6 +229,15 @@ kubectl create secret docker-registry ecr-credentials \
     --dry-run=client -o yaml | kubectl apply -f -
 
 print_status "ECR credentials secret created"
+
+# Create all required namespaces first
+echo ""
+echo "📦 Creating required namespaces..."
+kubectl create namespace cdc-consumers --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace flink --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null || true
+kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null || true
+
+print_status "Required namespaces created"
 
 # Deploy service accounts with IAM role associations
 echo ""

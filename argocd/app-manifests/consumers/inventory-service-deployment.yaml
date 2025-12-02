@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: inventory-service
-  namespace: cdc-consumers
+  namespace: consumers
   labels:
     app: inventory-service
     component: cdc-consumer
@@ -20,7 +20,7 @@ spec:
       serviceAccountName: inventory-service
       containers:
       - name: inventory-service
-        image: inventory-service:latest
+        image: 296592524620.dkr.ecr.us-east-1.amazonaws.com/inventory-service:latest
         imagePullPolicy: Always
         env:
         - name: KAFKA_BOOTSTRAP_SERVERS
@@ -75,7 +75,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: inventory-service
-  namespace: cdc-consumers
+  namespace: consumers
   labels:
     app: inventory-service
 spec:

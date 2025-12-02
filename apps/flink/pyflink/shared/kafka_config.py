@@ -9,7 +9,7 @@ def get_kafka_properties():
     Returns:
         dict: Kafka properties including bootstrap servers and consumer config
     """
-    kafka_bootstrap = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092')
+    kafka_bootstrap = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'cdc-platform-kafka-bootstrap.kafka.svc.cluster.local:9092')
 
     properties = {
         'bootstrap.servers': kafka_bootstrap,

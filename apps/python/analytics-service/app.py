@@ -118,10 +118,29 @@ def process_order_event(event: Dict[str, Any]):
 
         if operation in ['c', 'r']:  # Create or Read (snapshot)
             if after:
-                order_date = after['created_at'][:10]  # Extract YYYY-MM-DD
-                customer_id = after['customer_id']
-                total_amount = Decimal(str(after['total_amount']))
-                status = after['status']
+                # Parse created_at (can be timestamp or ISO string)
+                created_at = after.get('created_at', '')
+                if isinstance(created_at, (int, float)):
+                    # Timestamp in microseconds or milliseconds
+                    order_date = datetime.fromtimestamp(created_at / 1000000 if created_at > 1e12 else created_at / 1000).strftime('%Y-%m-%d')
+                else:
+                    order_date = str(created_at)[:10] if created_at else datetime.utcnow().strftime('%Y-%m-%d')
+
+                customer_id = after.get('customer_id')
+
+                # Parse total_amount (can be string, number, or bytes)
+                total_amount_raw = after.get('total_amount', 0)
+                if isinstance(total_amount_raw, (int, float)):
+                    total_amount = Decimal(str(total_amount_raw))
+                elif isinstance(total_amount_raw, bytes):
+                    total_amount = Decimal('0')  # Default for unparseable bytes
+                else:
+                    try:
+                        total_amount = Decimal(str(total_amount_raw))
+                    except:
+                        total_amount = Decimal('0')
+
+                status = after.get('status', 'unknown')
 
                 # Aggregate daily sales
                 sales_by_date[order_date]['total_amount'] += total_amount
@@ -161,9 +180,20 @@ def process_order_item_event(event: Dict[str, Any]):
         after = event['after']
 
         if operation in ['c', 'r'] and after:  # Create or Read (snapshot)
-            product_id = after['product_id']
-            quantity = after['quantity']
-            price = Decimal(str(after['price']))
+            product_id = after.get('product_id')
+            quantity = after.get('quantity', 0)
+
+            # Parse price (can be string, number, or bytes)
+            price_raw = after.get('price', 0)
+            if isinstance(price_raw, (int, float)):
+                price = Decimal(str(price_raw))
+            elif isinstance(price_raw, bytes):
+                price = Decimal('0')  # Default for unparseable bytes
+            else:
+                try:
+                    price = Decimal(str(price_raw))
+                except:
+                    price = Decimal('0')
 
             # Aggregate product sales
             product_sales[product_id]['quantity_sold'] += quantity

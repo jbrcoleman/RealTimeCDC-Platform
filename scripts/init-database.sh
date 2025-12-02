@@ -11,12 +11,16 @@ echo "==================================="
 
 # Get RDS endpoint from Terraform
 echo "📡 Getting RDS connection details..."
-cd terraform
-RDS_ENDPOINT=$(terraform output -raw rds_endpoint 2>/dev/null || echo "")
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+cd "$PROJECT_ROOT/terraform-infra"
+RDS_ENDPOINT_RAW=$(terraform output -raw rds_endpoint 2>/dev/null || echo "")
+RDS_ENDPOINT=$(echo "$RDS_ENDPOINT_RAW" | cut -d: -f1)  # Remove port if present
 RDS_DATABASE=$(terraform output -raw rds_database_name 2>/dev/null || echo "ecommerce")
 RDS_USERNAME=$(terraform output -raw rds_username 2>/dev/null || echo "dbadmin")
-SECRET_ARN=$(terraform output -raw rds_master_user_secret_arn 2>/dev/null)
-cd ..
+SECRET_ARN=$(terraform output -raw rds_master_secret_arn 2>/dev/null || echo "")
+cd "$PROJECT_ROOT"
 
 if [ -z "$RDS_ENDPOINT" ]; then
     echo "❌ Error: Could not get RDS endpoint from Terraform outputs"
