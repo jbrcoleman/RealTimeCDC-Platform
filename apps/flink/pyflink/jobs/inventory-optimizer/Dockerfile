@@ -1,9 +1,9 @@
 FROM flink:1.18.0-scala_2.12-java11
 
 RUN apt-get update && \
-    apt-get install -y python3.11 python3-pip python3.11-dev wget && \
-    ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
-    ln -sf /usr/bin/python3.11 /usr/bin/python && \
+    apt-get install -y python3.10 python3-pip python3.10-dev wget && \
+    ln -sf /usr/bin/python3.10 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3.10 /usr/bin/python && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

@@ -1,4 +1,3 @@
-# Assumes you have a hosted zone for democloud.click
 data "aws_route53_zone" "main" {
   name         = var.domain_name
   private_zone = false
@@ -35,6 +34,7 @@ locals {
 }
 
 # ArgoCD DNS Record
+
 resource "aws_route53_record" "argocd" {
   zone_id = data.aws_route53_zone.main.zone_id
   name    = "argocd.${var.domain_name}"
@@ -49,8 +49,9 @@ resource "aws_route53_record" "argocd" {
   depends_on = [data.kubernetes_ingress_v1.argocd]
 }
 
-# Flink DNS Record
-# Uses the same ALB hostname since both ingresses share the same ALB
+#Flink DNS Record
+#Uses the same ALB hostname since both ingresses share the same ALB
+
 resource "aws_route53_record" "flink" {
   zone_id = data.aws_route53_zone.main.zone_id
   name    = "flink.${var.domain_name}"
