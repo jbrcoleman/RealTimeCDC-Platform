@@ -164,11 +164,19 @@ cd RealTimeCDC-Platform
 cd terraform-infra
 terraform init
 terraform plan
+
+# Authenticate with AWS ECR Public (required for Karpenter chart)
+aws ecr-public get-login-password --region us-east-1 | \
+  helm registry login --username AWS --password-stdin public.ecr.aws
+
 terraform apply
 
 # Save outputs for later use
 terraform output > ../infrastructure-outputs.txt
 cd ..
+
+# Login to EKS Cluster
+aws eks --region us-east-1 update-kubeconfig --name cdc-platform
 ```
 
 ### Step 2: Deploy Application Layer
