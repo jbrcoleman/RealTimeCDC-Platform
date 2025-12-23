@@ -65,6 +65,13 @@ This platform captures database changes in real-time from PostgreSQL and streams
 - **FastAPI**: RESTful APIs for consumers
 - **Boto3**: AWS SDK for Python
 
+### Monitoring & Observability
+- **Prometheus**: Metrics collection and time-series database
+- **Grafana**: Visualization dashboards with pre-configured templates
+- **Alertmanager**: Alert routing and notification management
+- **CloudWatch Exporter**: AWS service metrics integration
+- **Prometheus Operator**: Automated Prometheus instance management
+
 ## 📁 Repository Structure
 
 ```
@@ -80,8 +87,9 @@ RealTimeCDC-Platform/
 │   ├── argocd.tf                 # ArgoCD installation
 │   ├── alb-controller.tf         # AWS Load Balancer Controller
 │   ├── karpenter-nodepools.tf    # Karpenter node pools
+│   ├── monitoring.tf             # Prometheus & Grafana stack
 │   ├── pod-identities.tf         # Pod Identity associations
-│   ├── route53.tf                # DNS records for ingress
+│   ├── route53.tf                # DNS records (ArgoCD, Flink, Grafana, Prometheus)
 │   └── strimzi.tf                # Strimzi operator (managed via script)
 │
 ├── argocd/                       # GitOps Configuration
@@ -97,6 +105,12 @@ RealTimeCDC-Platform/
 │       ├── flink/                # Flink job/task managers
 │       ├── ingress/              # ALB ingress configs
 │       └── kafka/                # Kafka cluster configs
+│
+├── k8s/                          # Kubernetes Configuration
+│   ├── monitoring/               # Monitoring stack values
+│   │   ├── prometheus-stack-values.yaml
+│   │   └── cloudwatch-exporter-values.yaml
+│   └── [other configs...]
 │
 ├── apps/                         # Application Code
 │   ├── consumers/                # Python consumer services
@@ -133,9 +147,15 @@ This platform uses a **hybrid approach** combining the best of Terraform, GitOps
 - Deployed once during initial setup
 
 ### Application Layer (Terraform + GitOps)
-- **terraform-apps/**: Kubernetes operators and controllers (ArgoCD, ALB Controller, Karpenter)
+- **terraform-apps/**: Kubernetes operators and controllers
+  - ArgoCD for GitOps
+  - AWS Load Balancer Controller (shared ALB for all ingresses)
+  - Karpenter for node autoscaling
+  - Prometheus & Grafana monitoring stack
+  - CloudWatch Exporter for AWS metrics
 - **argocd/**: Application deployments via GitOps (consumers, Flink jobs, ingress)
 - Auto-synced, drift detection enabled
+- All web UIs accessible via shared Application Load Balancer with SSL/TLS
 
 ### Kafka Infrastructure (Script-based)
 - **scripts/install-kafka.sh**: Deploys Strimzi operator and Kafka cluster
@@ -248,17 +268,37 @@ kubectl get kafkaconnector -n kafka
 # Check all pods are running
 kubectl get pods -A
 
-# Access ArgoCD UI
-echo "ArgoCD URL: https://argocd.your-domain.com"
+# Get ArgoCD admin password
 kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath='{.data.password}' | base64 -d
+  -o jsonpath='{.data.password}' | base64 -d && echo
 
-# Access Flink Dashboard
-echo "Flink URL: https://flink.your-domain.com"
+# Access Dashboards
+echo "
+🎯 Platform Access URLs:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Grafana (Monitoring):  https://grafana.your-domain.com
+   Username: admin
+   Password: Prometheus1234
 
-# Check Kafka topics
+📈 Prometheus (Metrics):  https://prometheus.your-domain.com
+   (For debugging queries and targets)
+
+🚀 ArgoCD (GitOps):       https://argocd.your-domain.com
+   Username: admin
+   Password: [Use command above]
+
+🌊 Flink (Stream Jobs):   https://flink.your-domain.com
+   (Job Manager Dashboard)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"
+
+# Verify Kafka topics are created
 kubectl exec -it cdc-platform-kafka-brokers-0 -n kafka -- \
   bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+
+# Check consumer services are processing messages
+kubectl logs -n consumers deployment/analytics-service --tail=20
+kubectl logs -n consumers deployment/inventory-service --tail=20
 ```
 
 ## 🔄 GitOps Workflow
@@ -308,21 +348,83 @@ terraform destroy
 
 ## 📊 Monitoring & Observability
 
+The platform includes comprehensive monitoring and observability with the **kube-prometheus-stack**, providing metrics collection, visualization, and alerting for all components.
+
+### Monitoring Stack
+
+- **Prometheus**: Metrics collection and time-series database
+- **Grafana**: Visualization dashboards and analytics
+- **Alertmanager**: Alert routing and notifications
+- **Node Exporter**: Node-level metrics
+- **Kube State Metrics**: Kubernetes cluster state metrics
+- **CloudWatch Exporter**: AWS service metrics (RDS, DynamoDB, S3, EBS)
+
 ### Access Dashboards
 
 ```bash
+# Grafana - Main Visualization Dashboard
+https://grafana.your-domain.com
+Username: admin
+Password: Prometheus1234
+
+# Prometheus - Metrics Query Interface (for debugging)
+https://prometheus.your-domain.com
+
 # ArgoCD - GitOps Dashboard
 https://argocd.your-domain.com
 
 # Flink - Stream Processing Dashboard
 https://flink.your-domain.com
-
-# Kafka - Topic and Consumer Metrics
-kubectl port-forward -n kafka svc/cdc-platform-kafka-exporter 9308:9308
 ```
 
-### Check Kafka Consumer Lag
+### Pre-configured Dashboards
 
+Grafana includes pre-installed dashboards for:
+
+1. **Kubernetes Cluster Overview** (ID: 7249)
+   - Cluster resource utilization
+   - Node metrics and health
+   - Pod status and distribution
+
+2. **Node Exporter Dashboard** (ID: 1860)
+   - CPU, memory, disk, network metrics
+   - System-level performance monitoring
+
+3. **Kafka Cluster Monitoring** (ID: 7589, 13770)
+   - Broker health and performance
+   - Topic throughput and lag
+   - Consumer group metrics
+   - Partition distribution
+
+4. **Apache Flink Dashboard** (ID: 10369)
+   - Job status and performance
+   - Task manager metrics
+   - Checkpointing and state
+   - Backpressure monitoring
+
+### Metrics Collection
+
+**Application Metrics:**
+- Kafka brokers, topics, consumer groups
+- Flink jobs, task managers, checkpoints
+- Debezium connector status
+- Consumer service metrics
+
+**Infrastructure Metrics:**
+- EKS cluster and node metrics
+- Pod resource usage (CPU, memory)
+- Network traffic and latency
+- Storage utilization
+
+**AWS Service Metrics (via CloudWatch Exporter):**
+- **RDS**: Database connections, CPU, storage, latency, throughput
+- **DynamoDB**: Read/write capacity, errors, request latency
+- **S3**: Bucket size, object count
+- **EBS**: Volume I/O operations and throughput
+
+### Monitoring Commands
+
+**Check Kafka Consumer Lag:**
 ```bash
 kubectl exec -it cdc-platform-kafka-brokers-0 -n kafka -- \
   bin/kafka-consumer-groups.sh \
@@ -330,10 +432,38 @@ kubectl exec -it cdc-platform-kafka-brokers-0 -n kafka -- \
   --describe --all-groups
 ```
 
-### View Debezium Connector Status
-
+**View Debezium Connector Status:**
 ```bash
 kubectl get kafkaconnector -n kafka -o wide
+```
+
+**Check Prometheus Targets:**
+```bash
+# Access Prometheus UI → Status → Targets
+# Or via kubectl port-forward:
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
+# Then visit http://localhost:9090/targets
+```
+
+**View Active Alerts:**
+```bash
+# Access Alertmanager UI:
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9093
+# Then visit http://localhost:9093
+```
+
+### Custom Metrics
+
+Consumer services expose custom metrics at `/metrics` endpoint:
+- Message processing rate
+- Error counts and types
+- Processing latency
+- DynamoDB/S3 operation metrics
+
+Access via port-forward:
+```bash
+kubectl port-forward -n consumers svc/analytics-service 8080:8080
+curl http://localhost:8080/metrics
 ```
 
 ## 🛠️ Troubleshooting

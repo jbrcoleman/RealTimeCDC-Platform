@@ -1,0 +1,48 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-connect-metrics
+  namespace: kafka
+  labels:
+    app: kafka-connect
+    strimzi.io/kind: KafkaConnect
+    strimzi.io/cluster: cdc-platform-connect
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9404
+      targetPort: 9404
+      protocol: TCP
+  selector:
+    strimzi.io/kind: KafkaConnect
+    strimzi.io/cluster: cdc-platform-connect
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kafka-connect
+  namespace: kafka
+  labels:
+    app: kafka-connect
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: kafka-connect
+      strimzi.io/kind: KafkaConnect
+      strimzi.io/cluster: cdc-platform-connect
+  namespaceSelector:
+    matchNames:
+      - kafka
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace

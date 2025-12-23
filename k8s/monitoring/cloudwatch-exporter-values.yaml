@@ -1,0 +1,128 @@
+# CloudWatch Exporter Configuration
+
+serviceAccount:
+  create: true
+  name: cloudwatch-exporter
+  annotations: {}
+
+# AWS Configuration
+aws:
+  role: ""  # Pod Identity handles this
+  region: us-east-1
+
+# Resource limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+# Metrics to collect
+config: |-
+  region: us-east-1
+  metrics:
+  # RDS Metrics
+  - aws_namespace: AWS/RDS
+    aws_metric_name: DatabaseConnections
+    aws_dimensions: [DBInstanceIdentifier]
+    aws_statistics: [Average]
+
+  - aws_namespace: AWS/RDS
+    aws_metric_name: CPUUtilization
+    aws_dimensions: [DBInstanceIdentifier]
+    aws_statistics: [Average]
+
+  - aws_namespace: AWS/RDS
+    aws_metric_name: FreeStorageSpace
+    aws_dimensions: [DBInstanceIdentifier]
+    aws_statistics: [Average]
+
+  - aws_namespace: AWS/RDS
+    aws_metric_name: FreeableMemory
+    aws_dimensions: [DBInstanceIdentifier]
+    aws_statistics: [Average]
+
+  - aws_namespace: AWS/RDS
+    aws_metric_name: ReadLatency
+    aws_dimensions: [DBInstanceIdentifier]
+    aws_statistics: [Average]
+
+  - aws_namespace: AWS/RDS
+    aws_metric_name: WriteLatency
+    aws_dimensions: [DBInstanceIdentifier]
+    aws_statistics: [Average]
+
+  - aws_namespace: AWS/RDS
+    aws_metric_name: ReadThroughput
+    aws_dimensions: [DBInstanceIdentifier]
+    aws_statistics: [Average]
+
+  - aws_namespace: AWS/RDS
+    aws_metric_name: WriteThroughput
+    aws_dimensions: [DBInstanceIdentifier]
+    aws_statistics: [Average]
+
+  # DynamoDB Metrics
+  - aws_namespace: AWS/DynamoDB
+    aws_metric_name: ConsumedReadCapacityUnits
+    aws_dimensions: [TableName]
+    aws_statistics: [Sum]
+
+  - aws_namespace: AWS/DynamoDB
+    aws_metric_name: ConsumedWriteCapacityUnits
+    aws_dimensions: [TableName]
+    aws_statistics: [Sum]
+
+  - aws_namespace: AWS/DynamoDB
+    aws_metric_name: UserErrors
+    aws_dimensions: [TableName]
+    aws_statistics: [Sum]
+
+  - aws_namespace: AWS/DynamoDB
+    aws_metric_name: SystemErrors
+    aws_dimensions: [TableName]
+    aws_statistics: [Sum]
+
+  - aws_namespace: AWS/DynamoDB
+    aws_metric_name: SuccessfulRequestLatency
+    aws_dimensions: [TableName, Operation]
+    aws_statistics: [Average]
+
+  # S3 Metrics
+  - aws_namespace: AWS/S3
+    aws_metric_name: BucketSizeBytes
+    aws_dimensions: [BucketName, StorageType]
+    aws_statistics: [Average]
+
+  - aws_namespace: AWS/S3
+    aws_metric_name: NumberOfObjects
+    aws_dimensions: [BucketName, StorageType]
+    aws_statistics: [Average]
+
+  # EBS Metrics
+  - aws_namespace: AWS/EBS
+    aws_metric_name: VolumeReadBytes
+    aws_dimensions: [VolumeId]
+    aws_statistics: [Sum]
+
+  - aws_namespace: AWS/EBS
+    aws_metric_name: VolumeWriteBytes
+    aws_dimensions: [VolumeId]
+    aws_statistics: [Sum]
+
+  - aws_namespace: AWS/EBS
+    aws_metric_name: VolumeReadOps
+    aws_dimensions: [VolumeId]
+    aws_statistics: [Sum]
+
+  - aws_namespace: AWS/EBS
+    aws_metric_name: VolumeWriteOps
+    aws_dimensions: [VolumeId]
+    aws_statistics: [Sum]
+
+serviceMonitor:
+  enabled: true
+  interval: 60s
+  scrapeTimeout: 55s

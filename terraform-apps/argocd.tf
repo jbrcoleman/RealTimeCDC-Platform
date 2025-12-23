@@ -48,7 +48,10 @@ resource "helm_release" "argocd" {
     })
   ]
 
-  depends_on = [kubectl_manifest.karpenter_nodepool_default]
+  depends_on = [
+    kubectl_manifest.karpenter_nodepool_default,
+    helm_release.aws_load_balancer_controller
+  ]
 }
 
 # ArgoCD Image Updater

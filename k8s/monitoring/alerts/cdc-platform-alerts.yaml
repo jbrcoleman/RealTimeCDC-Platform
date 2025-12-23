@@ -1,0 +1,294 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cdc-platform-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+    app: kube-prometheus-stack
+spec:
+  groups:
+    # Kafka Alerts
+    - name: kafka
+      interval: 30s
+      rules:
+        - alert: KafkaBrokerDown
+          expr: kafka_server_replicamanager_leadercount == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: kafka
+          annotations:
+            summary: "Kafka broker is down"
+            description: "Kafka broker {{ $labels.pod }} has no leader partitions for 5 minutes."
+            runbook_url: "https://wiki.example.com/runbooks/kafka-broker-down"
+
+        - alert: KafkaUnderReplicatedPartitions
+          expr: kafka_server_replicamanager_underreplicatedpartitions > 0
+          for: 10m
+          labels:
+            severity: warning
+            component: kafka
+          annotations:
+            summary: "Kafka has under-replicated partitions"
+            description: "Kafka cluster has {{ $value }} under-replicated partitions for more than 10 minutes."
+
+        - alert: KafkaConsumerLagHigh
+          expr: kafka_consumergroup_lag > 1000
+          for: 15m
+          labels:
+            severity: warning
+            component: kafka
+          annotations:
+            summary: "Kafka consumer lag is high"
+            description: "Consumer group {{ $labels.consumergroup }} has lag of {{ $value }} messages on topic {{ $labels.topic }}."
+
+        - alert: KafkaOfflinePartitions
+          expr: kafka_controller_kafkacontroller_offlinepartitionscount > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: kafka
+          annotations:
+            summary: "Kafka has offline partitions"
+            description: "Kafka cluster has {{ $value }} offline partitions."
+
+    # Debezium / Kafka Connect Alerts
+    - name: debezium
+      interval: 30s
+      rules:
+        - alert: DebeziumConnectorFailed
+          expr: kafka_connect_connector_status{status="failed"} == 1
+          for: 5m
+          labels:
+            severity: critical
+            component: debezium
+          annotations:
+            summary: "Debezium connector has failed"
+            description: "Debezium connector {{ $labels.connector }} is in failed state."
+
+        - alert: DebeziumConnectorPaused
+          expr: kafka_connect_connector_status{status="paused"} == 1
+          for: 10m
+          labels:
+            severity: warning
+            component: debezium
+          annotations:
+            summary: "Debezium connector is paused"
+            description: "Debezium connector {{ $labels.connector }} has been paused for 10 minutes."
+
+        - alert: DebeziumTaskRestarting
+          expr: rate(kafka_connect_connector_task_restart_count[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: debezium
+          annotations:
+            summary: "Debezium task is restarting"
+            description: "Debezium connector {{ $labels.connector }} task is restarting frequently."
+
+        - alert: DebeziumSourceLagHigh
+          expr: kafka_connect_source_task_source_record_active_count > 10000
+          for: 10m
+          labels:
+            severity: warning
+            component: debezium
+          annotations:
+            summary: "Debezium source lag is high"
+            description: "Debezium has {{ $value }} active source records waiting to be processed."
+
+    # Flink Alerts
+    - name: flink
+      interval: 30s
+      rules:
+        - alert: FlinkJobFailed
+          expr: flink_jobmanager_job_uptime == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: flink
+          annotations:
+            summary: "Flink job has failed"
+            description: "Flink job {{ $labels.job_name }} is not running."
+
+        - alert: FlinkCheckpointFailing
+          expr: rate(flink_jobmanager_job_numberOfFailedCheckpoints[15m]) > 0
+          for: 15m
+          labels:
+            severity: critical
+            component: flink
+          annotations:
+            summary: "Flink checkpoints are failing"
+            description: "Flink job {{ $labels.job_name }} has failing checkpoints."
+
+        - alert: FlinkCheckpointDurationHigh
+          expr: flink_jobmanager_job_lastCheckpointDuration > 60000
+          for: 10m
+          labels:
+            severity: warning
+            component: flink
+          annotations:
+            summary: "Flink checkpoint duration is high"
+            description: "Flink job {{ $labels.job_name }} checkpoint took {{ $value }}ms (>60s)."
+
+        - alert: FlinkHighBackpressure
+          expr: flink_taskmanager_job_task_backPressuredTimeMsPerSecond > 500
+          for: 10m
+          labels:
+            severity: warning
+            component: flink
+          annotations:
+            summary: "Flink task has high backpressure"
+            description: "Flink task {{ $labels.task_name }} in job {{ $labels.job_name }} is experiencing backpressure."
+
+        - alert: FlinkStateSizeGrowing
+          expr: deriv(flink_jobmanager_job_lastCheckpointSize[30m]) > 10485760
+          for: 30m
+          labels:
+            severity: warning
+            component: flink
+          annotations:
+            summary: "Flink state size is growing rapidly"
+            description: "Flink job {{ $labels.job_name }} state is growing by {{ $value | humanize }}B per 30 minutes."
+
+        - alert: FlinkTaskManagerDown
+          expr: up{job="flink-taskmanager"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: flink
+          annotations:
+            summary: "Flink TaskManager is down"
+            description: "Flink TaskManager {{ $labels.pod }} is down."
+
+    # Consumer Application Alerts
+    - name: consumers
+      interval: 30s
+      rules:
+        - alert: ConsumerDown
+          expr: up{job="cdc-consumers"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: consumer
+          annotations:
+            summary: "Consumer application is down"
+            description: "Consumer {{ $labels.service }} is down for 5 minutes."
+
+        - alert: ConsumerLagHigh
+          expr: consumer_lag{service=~"analytics-service|search-indexer|inventory-service"} > 1000
+          for: 10m
+          labels:
+            severity: warning
+            component: consumer
+          annotations:
+            summary: "Consumer lag is high"
+            description: "Consumer {{ $labels.service }} has lag of {{ $value }} messages."
+
+        - alert: ConsumerErrorRateHigh
+          expr: rate(consumer_errors_total[5m]) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+            component: consumer
+          annotations:
+            summary: "Consumer error rate is high"
+            description: "Consumer {{ $labels.service }} has error rate of {{ $value | humanizePercentage }}."
+
+    # RDS / PostgreSQL Alerts
+    - name: rds
+      interval: 60s
+      rules:
+        - alert: RDSConnectionsHigh
+          expr: aws_rds_database_connections_average > 80
+          for: 10m
+          labels:
+            severity: warning
+            component: rds
+          annotations:
+            summary: "RDS connection count is high"
+            description: "RDS instance {{ $labels.dbinstance_identifier }} has {{ $value }} connections (>80)."
+
+        - alert: RDSCPUHigh
+          expr: aws_rds_cpuutilization_average > 80
+          for: 10m
+          labels:
+            severity: warning
+            component: rds
+          annotations:
+            summary: "RDS CPU utilization is high"
+            description: "RDS instance {{ $labels.dbinstance_identifier }} CPU is at {{ $value }}%."
+
+        - alert: RDSLowStorage
+          expr: aws_rds_free_storage_space_average < 10737418240
+          for: 5m
+          labels:
+            severity: critical
+            component: rds
+          annotations:
+            summary: "RDS storage is low"
+            description: "RDS instance {{ $labels.dbinstance_identifier }} has less than 10GB free storage."
+
+        - alert: RDSHighWriteLatency
+          expr: aws_rds_write_latency_average > 0.1
+          for: 10m
+          labels:
+            severity: warning
+            component: rds
+          annotations:
+            summary: "RDS write latency is high"
+            description: "RDS instance {{ $labels.dbinstance_identifier }} write latency is {{ $value }}s."
+
+    # Kubernetes / EKS Alerts
+    - name: kubernetes
+      interval: 30s
+      rules:
+        - alert: PodCrashLooping
+          expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+            component: kubernetes
+          annotations:
+            summary: "Pod is crash looping"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping."
+
+        - alert: NodeNotReady
+          expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: kubernetes
+          annotations:
+            summary: "Node is not ready"
+            description: "Node {{ $labels.node }} is not ready for 5 minutes."
+
+        - alert: PodMemoryUsageHigh
+          expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            component: kubernetes
+          annotations:
+            summary: "Pod memory usage is high"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} memory usage is {{ $value | humanizePercentage }}."
+
+        - alert: PVCAlmostFull
+          expr: (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) > 0.85
+          for: 10m
+          labels:
+            severity: warning
+            component: kubernetes
+          annotations:
+            summary: "PVC is almost full"
+            description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is {{ $value | humanizePercentage }} full."
+
+        - alert: PodNotReady
+          expr: kube_pod_status_phase{phase!="Running"} > 0
+          for: 15m
+          labels:
+            severity: warning
+            component: kubernetes
+          annotations:
+            summary: "Pod is not ready"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is in {{ $labels.phase }} phase for 15 minutes."

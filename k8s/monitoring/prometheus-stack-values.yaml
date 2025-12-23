@@ -1,0 +1,326 @@
+# kube-prometheus-stack Helm values
+
+# Global settings
+defaultRules:
+  create: true
+  rules:
+    alertmanager: true
+    etcd: true
+    configReloaders: true
+    general: true
+    k8s: true
+    kubeApiserverAvailability: true
+    kubeApiserverBurnrate: true
+    kubeApiserverHistogram: true
+    kubeApiserverSlos: true
+    kubeControllerManager: true
+    kubelet: true
+    kubeProxy: true
+    kubePrometheusGeneral: true
+    kubePrometheusNodeRecording: true
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+    kubeSchedulerAlerting: true
+    kubeSchedulerRecording: true
+    kubeStateMetrics: true
+    network: true
+    node: true
+    nodeExporterAlerting: true
+    nodeExporterRecording: true
+    prometheus: true
+    prometheusOperator: true
+
+# Prometheus Operator
+prometheusOperator:
+  enabled: true
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Prometheus
+prometheus:
+  enabled: true
+
+  ingress:
+    enabled: true
+    annotations:
+      alb.ingress.kubernetes.io/backend-protocol: HTTP
+      alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:296592524620:certificate/205aec49-0748-4f21-ba92-8ed60a90dc0f
+      alb.ingress.kubernetes.io/group.name: shared-alb
+      alb.ingress.kubernetes.io/group.order: "30"
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/healthcheck-path: /-/healthy
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: "443"
+      alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS-1-2-2017-01
+    ingressClassName: alb
+    hosts:
+      - prometheus.democloud.click
+    paths:
+      - /
+    tls:
+      - hosts:
+          - prometheus.democloud.click
+
+  prometheusSpec:
+    # Retention
+    retention: 15d
+    retentionSize: "50GB"
+
+    # Resource limits
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+
+    # Storage
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 100Gi
+
+    # Scrape configuration
+    scrapeInterval: 30s
+    scrapeTimeout: 10s
+    evaluationInterval: 30s
+
+    # External labels
+    externalLabels:
+      cluster: cdc-platform
+      environment: production
+      region: us-east-1
+
+    # Service monitors selector (select all)
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+
+    # Pod monitors selector (select all)
+    podMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+
+    # Probe selector
+    probeSelector: {}
+    probeNamespaceSelector: {}
+
+    # Rule selector
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+
+    # Additional scrape configs
+    additionalScrapeConfigs: []
+
+    # Enable admin API
+    enableAdminAPI: true
+
+    # Replicas for HA
+    replicas: 1
+
+# Alertmanager
+alertmanager:
+  enabled: true
+
+  ingress:
+    enabled: false
+
+  config:
+    global:
+      resolve_timeout: 5m
+
+    route:
+      group_by: ['alertname', 'cluster', 'service']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 12h
+      receiver: 'null'  # Default: no notifications
+
+    receivers:
+      - name: 'null'
+        # No-op receiver: alerts visible in Prometheus/Alertmanager UI only
+
+    inhibit_rules:
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'cluster', 'service']
+
+    # To add Slack later, uncomment and configure:
+    # receivers:
+    #   - name: 'slack'
+    #     slack_configs:
+    #       - api_url: 'YOUR_WEBHOOK_URL'
+    #         channel: '#alerts'
+    #         title: '{{ .GroupLabels.alertname }}'
+    #         text: "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"
+
+  alertmanagerSpec:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+# Grafana
+grafana:
+  enabled: true
+
+  adminPassword: "Prometheus1234"
+
+  ingress:
+    enabled: true
+    annotations:
+      alb.ingress.kubernetes.io/backend-protocol: HTTP
+      alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:296592524620:certificate/205aec49-0748-4f21-ba92-8ed60a90dc0f
+      alb.ingress.kubernetes.io/group.name: shared-alb
+      alb.ingress.kubernetes.io/group.order: "40"
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/healthcheck-path: /api/health
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: "443"
+      alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS-1-2-2017-01
+    ingressClassName: alb
+    hosts:
+      - grafana.democloud.click
+    path: /
+    tls:
+      - hosts:
+          - grafana.democloud.click
+
+  persistence:
+    enabled: true
+    storageClassName: gp3
+    size: 10Gi
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Grafana configuration
+  grafana.ini:
+    server:
+      root_url: https://grafana.democloud.click
+    analytics:
+      check_for_updates: true
+    log:
+      mode: console
+    grafana_net:
+      url: https://grafana.net
+    security:
+      admin_user: admin
+
+  # Dashboard providers
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+        - name: 'kafka'
+          orgId: 1
+          folder: 'Kafka'
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/kafka
+        - name: 'flink'
+          orgId: 1
+          folder: 'Flink'
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/flink
+
+  # Import dashboards
+  dashboards:
+    default:
+      kubernetes-cluster:
+        gnetId: 7249
+        revision: 1
+        datasource: Prometheus
+      node-exporter:
+        gnetId: 1860
+        revision: 31
+        datasource: Prometheus
+    kafka:
+      kafka-overview:
+        gnetId: 7589
+        revision: 5
+        datasource: Prometheus
+      strimzi-kafka:
+        gnetId: 13770
+        revision: 2
+        datasource: Prometheus
+    flink:
+      flink-dashboard:
+        gnetId: 10369
+        revision: 1
+        datasource: Prometheus
+
+  # Plugins
+  plugins:
+    - grafana-piechart-panel
+    - grafana-clock-panel
+
+# Node Exporter
+nodeExporter:
+  enabled: true
+
+# Kube State Metrics
+kube-state-metrics:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Prometheus Node Exporter
+prometheus-node-exporter:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 50Mi
+    limits:
+      cpu: 200m
+      memory: 180Mi
