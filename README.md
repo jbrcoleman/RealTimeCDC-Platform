@@ -4,11 +4,19 @@ A production-ready, real-time Change Data Capture (CDC) platform built on AWS EK
 
 ## 🎯 Project Overview
 
-This platform captures database changes in real-time from PostgreSQL and streams them to multiple destinations for different use cases:
-- **Data Lake (S3)**: Historical analytics and compliance
-- **DynamoDB**: Fast materialized views for application reads
-- **Stream Processing (Flink)**: Real-time transformations and aggregations
-- **Consumer Microservices**: Event-driven Python applications
+This platform demonstrates enterprise-grade real-time data architecture by capturing database changes from PostgreSQL and streaming them to multiple destinations:
+
+- **Data Lake (S3)**: Historical analytics and compliance audit trails
+- **DynamoDB**: Fast materialized views for low-latency application reads
+- **Stream Processing (PyFlink)**: Real-time transformations, aggregations, and ML-based anomaly detection
+- **Consumer Microservices**: Event-driven Python applications with dead-letter queues
+
+**Key Features:**
+- GitOps deployment with ArgoCD for declarative infrastructure management
+- Multi-AZ Kafka cluster with KRaft mode (no Zookeeper)
+- Comprehensive monitoring with Prometheus, Grafana, and AWS CloudWatch integration
+- Cost-optimized autoscaling using Karpenter with spot instances
+- Production-ready security with IAM Pod Identity and least-privilege permissions
 
 ### Architecture
 
@@ -52,7 +60,7 @@ This platform captures database changes in real-time from PostgreSQL and streams
 ### Data Streaming
 - **Apache Kafka 4.1.0 (Strimzi 0.48.0)**: Distributed event streaming (KRaft mode)
 - **Debezium**: Change data capture connector for PostgreSQL
-- **Apache Flink**: Stream processing framework
+- **Apache Flink (PyFlink)**: Stream processing framework with Python API
 - **Schema Registry**: Avro schema management
 
 ### Storage & Databases
@@ -113,28 +121,24 @@ RealTimeCDC-Platform/
 │   └── [other configs...]
 │
 ├── apps/                         # Application Code
-│   ├── consumers/                # Python consumer services
+│   ├── python/                   # Python consumer services
 │   │   ├── analytics-service/
 │   │   ├── inventory-service/
 │   │   └── search-indexer/
-│   └── flink/                    # Flink jobs (Java/Scala)
+│   └── flink/pyflink/jobs/       # PyFlink stream processing jobs
 │       ├── sales-aggregations/
 │       ├── anomaly-detection/
 │       ├── customer-segmentation/
 │       └── inventory-optimizer/
 │
-├── scripts/                      # Operational Scripts
-│   ├── install-kafka.sh          # Install Kafka operator + cluster
-│   ├── install-debezium.sh       # Deploy Debezium connectors
-│   ├── init-database.sh          # Initialize source database
-│   ├── build-flink-jobs.sh       # Build and push Flink jobs
-│   ├── submit-flink-job.sh       # Submit Flink job to cluster
-│   ├── cleanup-all.sh            # Comprehensive cleanup
-│   ├── cleanup-dynamodb.sh       # Clean DynamoDB tables
-│   └── teardown.sh               # Full teardown
-│
-└── docs/                         # Additional Documentation
-    └── *.md                      # Detailed guides
+└── scripts/                      # Operational Scripts
+    ├── install-kafka.sh          # Install Kafka operator + cluster
+    ├── install-debezium.sh       # Deploy Debezium connectors
+    ├── init-database.sh          # Initialize source database
+    ├── build-flink-jobs.sh       # Build and push Flink jobs
+    ├── submit-flink-job.sh       # Submit Flink job to cluster
+    ├── test-cdc-pipeline.sh      # Test CDC pipeline end-to-end
+    └── destroy-infrastructure.sh # Full infrastructure teardown
 ```
 
 ## 🏗️ Deployment Architecture
@@ -177,7 +181,7 @@ This platform uses a **hybrid approach** combining the best of Terraform, GitOps
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/RealTimeCDC-Platform.git
+git clone https://github.com/jbrcoleman/RealTimeCDC-Platform.git
 cd RealTimeCDC-Platform
 
 # Deploy core infrastructure (EKS, RDS, S3, VPC)
@@ -208,10 +212,10 @@ cd terraform-apps
 # Update terraform.tfvars with your values
 cat > terraform.tfvars <<EOF
 environment     = "dev"
-git_repo_url    = "https://github.com/YOUR-ORG/RealTimeCDC-Platform"
+git_repo_url    = "https://github.com/jbrcoleman/RealTimeCDC-Platform"
 git_revision    = "main"
-domain_name     = "your-domain.com"
-certificate_arn = "arn:aws:acm:region:account:certificate/xxx"
+domain_name     = "your-domain.com"          # Optional: Your Route53 domain for web UIs
+certificate_arn = "arn:aws:acm:region:account:certificate/xxx"  # Optional: ACM cert ARN for HTTPS
 EOF
 
 terraform init
@@ -327,21 +331,28 @@ kubectl patch application root-app -n argocd \
 ### Option 1: Clean up applications (keep infrastructure)
 
 ```bash
-# Comprehensive cleanup of apps and Kafka
-./scripts/cleanup-all.sh
+# Delete ArgoCD applications (preserves Terraform-managed infrastructure)
+kubectl delete -n argocd application --all
+
+# Or manually delete specific applications
+kubectl delete -n argocd application consumer-apps flink-jobs kafka-resources
 ```
 
 ### Option 2: Full teardown (including infrastructure)
 
 ```bash
-# Clean up everything including EKS cluster
-./scripts/cleanup-all.sh
+# Automated full teardown (infrastructure + EKS cluster)
+./scripts/destroy-infrastructure.sh
 
-# Destroy application layer
+# Or manual step-by-step teardown:
+# 1. Delete ArgoCD applications
+kubectl delete -n argocd application --all
+
+# 2. Destroy application layer (ArgoCD, Karpenter, etc.)
 cd terraform-apps
 terraform destroy
 
-# Destroy infrastructure layer
+# 3. Destroy infrastructure layer (EKS, RDS, VPC, S3)
 cd ../terraform-infra
 terraform destroy
 ```
@@ -504,18 +515,6 @@ aws eks list-pod-identity-associations --cluster-name cdc-platform
 # Check service account annotations
 kubectl get sa -n kafka kafka-connect -o yaml
 ```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## 📝 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## 🔗 Additional Resources
 
