@@ -11,7 +11,7 @@ spec:
   source:
     repoURL: ${repo_url}
     targetRevision: ${revision}
-    path: argocd/applications
+    path: argocd/apps
 
   destination:
     server: https://kubernetes.default.svc
